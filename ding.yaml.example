@@ -1,0 +1,37 @@
+# ding.yaml.example — copy to ding.yaml and customize
+
+server:
+  port: 8080
+  format: auto          # json | prometheus | auto
+  max_buffer_size: 10000
+
+notifiers:
+  # Define named webhook notifiers here.
+  # alert-slack:
+  #   type: webhook
+  #   url: https://hooks.slack.com/services/T.../...
+  #
+  # alert-pagerduty:
+  #   type: webhook
+  #   url: https://your-pd-proxy/...
+
+rules:
+  # Event-per-event: fires on a single reading above threshold
+  - name: cpu_spike
+    match:
+      metric: cpu_usage
+    condition: value > 95
+    cooldown: 1m
+    message: "CPU spike: {{ .value }}% on {{ .host }}"
+    alert:
+      - notifier: stdout
+
+  # Windowed: fires only on sustained high CPU (avg over 5 minutes)
+  - name: cpu_sustained
+    match:
+      metric: cpu_usage
+    condition: avg(value) over 5m > 80
+    cooldown: 10m
+    message: "Sustained high CPU: avg {{ .avg }}% on {{ .host }}"
+    alert:
+      - notifier: stdout
