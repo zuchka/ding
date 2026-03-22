@@ -102,7 +102,7 @@ func (e *Engine) Process(event ingester.Event, now time.Time) []Alert {
 		var aggregates map[string]float64
 		if rule.cond.Windowed {
 			buf := e.getOrCreateBuffer(bufKey, rule.cond.Window)
-			buf.Add(event.Value, now)
+			buf.Add(event.Value, event.At)
 			if !buf.HasEntries(now) {
 				continue
 			}
