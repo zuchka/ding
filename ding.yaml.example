@@ -4,12 +4,25 @@ server:
   port: 8080
   format: auto          # json | prometheus | auto
   max_buffer_size: 10000
+  # HTTP server timeouts (optional, secure defaults applied if omitted)
+  # read_timeout: 5s
+  # write_timeout: 10s
+  # idle_timeout: 60s
+  # Max request body size for /ingest (optional, default 1 MB)
+  # max_body_bytes: 1048576
+
+# State persistence (optional — omit entire section to disable)
+# persistence:
+#   state_file: /var/lib/ding/state.json
+#   flush_interval: 30s
 
 notifiers:
   # Define named webhook notifiers here.
   # alert-slack:
   #   type: webhook
   #   url: https://hooks.slack.com/services/T.../...
+  #   max_attempts: 3        # retry up to 3 times on 5xx/connection errors (default)
+  #   initial_backoff: 1s    # backoff before first retry, doubles each attempt (default)
   #
   # alert-pagerduty:
   #   type: webhook

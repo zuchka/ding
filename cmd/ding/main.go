@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/super-ding/ding/internal/evaluator"
 	"github.com/super-ding/ding/internal/server"
 )
 
@@ -75,6 +76,57 @@ func runServe(configPath string) error {
 
 	srv := server.New(eng, notifiers, cfg, configPath)
 
+	// Persistence: restore state and start periodic flusher.
+	stopFlusher := func() {} // no-op until flusher is started
+	if cfg.Persistence.StateFile != "" {
+		snap, err := evaluator.LoadSnapshot(cfg.Persistence.StateFile)
+		if err != nil {
+			log.Printf("ding: could not load state: %v (starting fresh)", err)
+		} else if snap != nil {
+			evaluator.RestoreEngine(eng, *snap, time.Now())
+			log.Printf("ding: restored state from %s (saved at %s)", cfg.Persistence.StateFile, snap.SavedAt.Format(time.RFC3339))
+		}
+		stopFlusher = eng.StartFlusher(cfg.Persistence.StateFile, cfg.Persistence.FlushInterval.Duration)
+	}
+
+	// Set up the reload hook so /reload endpoint also transfers state.
+	srv.SetReloadHook(func() error {
+		// Flush old engine state to disk.
+		stopFlusher()
+		stopFlusher = func() {}
+
+		newEng, newCfg, newNotifiers, err := server.BuildFromConfig(configPath)
+		if err != nil {
+			// Restart flusher on old engine since reload failed.
+			if cfg.Persistence.StateFile != "" {
+				stopFlusher = eng.StartFlusher(cfg.Persistence.StateFile, cfg.Persistence.FlushInterval.Duration)
+			}
+			return fmt.Errorf("reload failed: %w", err)
+		}
+
+		// Restore state into new engine from file.
+		if newCfg.Persistence.StateFile != "" {
+			snap, err := evaluator.LoadSnapshot(newCfg.Persistence.StateFile)
+			if err != nil {
+				log.Printf("ding: state restore after reload failed: %v (new engine starts fresh)", err)
+			} else if snap != nil {
+				evaluator.RestoreEngine(newEng, *snap, time.Now())
+			}
+		}
+
+		srv.SwapEngine(newEng, newCfg, newNotifiers)
+		eng = newEng
+		cfg = newCfg
+		notifiers = newNotifiers
+		log.Printf("ding: config reloaded from %s", configPath)
+
+		// Start new flusher on new engine.
+		if newCfg.Persistence.StateFile != "" {
+			stopFlusher = newEng.StartFlusher(newCfg.Persistence.StateFile, newCfg.Persistence.FlushInterval.Duration)
+		}
+		return nil
+	})
+
 	// Detect stdin pipe
 	stdinInfo, err := os.Stdin.Stat()
 	if err == nil && (stdinInfo.Mode()&os.ModeCharDevice) == 0 {
@@ -99,13 +151,42 @@ func runServe(configPath string) error {
 	go func() {
 		for range sighup {
 			log.Println("ding: received SIGHUP, reloading config...")
+
+			// 1a. Flush old engine state to disk.
+			stopFlusher()
+			// 1b. Reset to no-op immediately so any early return path is safe.
+			stopFlusher = func() {}
+
 			newEng, newCfg, newNotifiers, err := server.BuildFromConfig(configPath)
 			if err != nil {
 				log.Printf("ding: reload failed: %v (keeping current config)", err)
+				// Restart flusher on old engine since reload failed.
+				if cfg.Persistence.StateFile != "" {
+					stopFlusher = eng.StartFlusher(cfg.Persistence.StateFile, cfg.Persistence.FlushInterval.Duration)
+				}
 				continue
 			}
+
+			// Restore state into new engine from file.
+			if newCfg.Persistence.StateFile != "" {
+				snap, err := evaluator.LoadSnapshot(newCfg.Persistence.StateFile)
+				if err != nil {
+					log.Printf("ding: state restore after reload failed: %v (new engine starts fresh)", err)
+				} else if snap != nil {
+					evaluator.RestoreEngine(newEng, *snap, time.Now())
+				}
+			}
+
 			srv.SwapEngine(newEng, newCfg, newNotifiers)
+			eng = newEng
+			cfg = newCfg
+			notifiers = newNotifiers
 			log.Printf("ding: config reloaded from %s", configPath)
+
+			// Start new flusher on new engine.
+			if newCfg.Persistence.StateFile != "" {
+				stopFlusher = newEng.StartFlusher(newCfg.Persistence.StateFile, newCfg.Persistence.FlushInterval.Duration)
+			}
 		}
 	}()
 
@@ -124,7 +205,18 @@ func runServe(configPath string) error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return httpSrv.Shutdown(shutdownCtx)
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("ding: shutdown error: %v", err)
+	}
+
+	// Stop webhook goroutines, then do final state flush.
+	for _, n := range notifiers {
+		if stopper, ok := n.(interface{ Stop() }); ok {
+			stopper.Stop()
+		}
+	}
+	stopFlusher()
+	return nil
 }
 
 func readStdin(srv *server.Server, _ string) {

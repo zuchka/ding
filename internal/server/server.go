@@ -14,12 +14,13 @@ import (
 
 // Server holds the HTTP server state.
 type Server struct {
-	mu         sync.RWMutex
-	engine     *evaluator.Engine
-	notifiers  map[string]notifier.Notifier
-	cfg        *config.Config
-	configPath string
-	mux        *http.ServeMux
+	mu          sync.RWMutex
+	engine      *evaluator.Engine
+	notifiers   map[string]notifier.Notifier
+	cfg         *config.Config
+	configPath  string
+	mux         *http.ServeMux
+	reloadHook  func() error // optional; set via SetReloadHook
 }
 
 // New creates a Server. configPath is used by /reload.
@@ -56,6 +57,15 @@ func (s *Server) SwapEngine(eng *evaluator.Engine, cfg *config.Config, notifiers
 			stopper.Stop()
 		}
 	}
+}
+
+// SetReloadHook registers a function that handleReload will call instead of its
+// default inline reload logic. main.go uses this to inject the full
+// flush-restore-swap-flusher sequence around hot-reload.
+func (s *Server) SetReloadHook(fn func() error) {
+	s.mu.Lock()
+	s.reloadHook = fn
+	s.mu.Unlock()
 }
 
 // BuildFromConfig loads a config file and builds an Engine + Notifiers.

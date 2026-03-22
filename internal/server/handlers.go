@@ -106,6 +106,23 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "no config path set", http.StatusInternalServerError)
 		return
 	}
+
+	// If a reload hook has been registered (e.g. by main.go to handle
+	// persistence flush/restore around the swap), use it.
+	s.mu.RLock()
+	hook := s.reloadHook
+	s.mu.RUnlock()
+	if hook != nil {
+		if err := hook(); err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"reloaded"}`))
+		return
+	}
+
+	// Default inline reload (no persistence awareness).
 	newEng, newCfg, newNotifiers, err := buildFromConfig(s.configPath)
 	if err != nil {
 		jsonError(w, "reload failed: "+err.Error(), http.StatusInternalServerError)
