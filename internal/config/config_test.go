@@ -101,3 +101,74 @@ func TestValidate_DefaultPort(t *testing.T) {
 		t.Errorf("expected default port 8080, got %d", cfg.Server.Port)
 	}
 }
+
+func TestValidate_DefaultTimeouts(t *testing.T) {
+	cfg := &config.Config{}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Server.ReadTimeout.Duration != 5*time.Second {
+		t.Errorf("expected ReadTimeout 5s, got %v", cfg.Server.ReadTimeout.Duration)
+	}
+	if cfg.Server.WriteTimeout.Duration != 10*time.Second {
+		t.Errorf("expected WriteTimeout 10s, got %v", cfg.Server.WriteTimeout.Duration)
+	}
+	if cfg.Server.IdleTimeout.Duration != 60*time.Second {
+		t.Errorf("expected IdleTimeout 60s, got %v", cfg.Server.IdleTimeout.Duration)
+	}
+}
+
+func TestValidate_DefaultMaxBodyBytes(t *testing.T) {
+	cfg := &config.Config{}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Server.MaxBodyBytes != 1<<20 {
+		t.Errorf("expected MaxBodyBytes %d, got %d", 1<<20, cfg.Server.MaxBodyBytes)
+	}
+}
+
+func TestValidate_PersistenceDefaults(t *testing.T) {
+	cfg := &config.Config{
+		Persistence: config.PersistenceConfig{
+			StateFile: "/tmp/ding.state",
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Persistence.FlushInterval.Duration != 30*time.Second {
+		t.Errorf("expected FlushInterval 30s, got %v", cfg.Persistence.FlushInterval.Duration)
+	}
+}
+
+func TestValidate_PersistenceNoStateFile(t *testing.T) {
+	cfg := &config.Config{}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Persistence.FlushInterval.Duration != 0 {
+		t.Errorf("expected FlushInterval 0 when StateFile empty, got %v", cfg.Persistence.FlushInterval.Duration)
+	}
+}
+
+func TestValidate_WebhookRetryDefaults(t *testing.T) {
+	cfg := &config.Config{
+		Notifiers: map[string]config.NotifierConfig{
+			"my-webhook": {
+				Type: "webhook",
+				URL:  "https://example.com/hook",
+			},
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	nc := cfg.Notifiers["my-webhook"]
+	if nc.MaxAttempts != 3 {
+		t.Errorf("expected MaxAttempts 3, got %d", nc.MaxAttempts)
+	}
+	if nc.InitialBackoff.Duration != 1*time.Second {
+		t.Errorf("expected InitialBackoff 1s, got %v", nc.InitialBackoff.Duration)
+	}
+}

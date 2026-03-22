@@ -21,14 +21,25 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 }
 
 type ServerConfig struct {
-	Port          int    `yaml:"port"`
-	Format        string `yaml:"format"`
-	MaxBufferSize int    `yaml:"max_buffer_size"`
+	Port          int      `yaml:"port"`
+	Format        string   `yaml:"format"`
+	MaxBufferSize int      `yaml:"max_buffer_size"`
+	ReadTimeout   Duration `yaml:"read_timeout"`
+	WriteTimeout  Duration `yaml:"write_timeout"`
+	IdleTimeout   Duration `yaml:"idle_timeout"`
+	MaxBodyBytes  int64    `yaml:"max_body_bytes"`
+}
+
+type PersistenceConfig struct {
+	StateFile     string   `yaml:"state_file"`
+	FlushInterval Duration `yaml:"flush_interval"`
 }
 
 type NotifierConfig struct {
-	Type string `yaml:"type"`
-	URL  string `yaml:"url"`
+	Type           string   `yaml:"type"`
+	URL            string   `yaml:"url"`
+	MaxAttempts    int      `yaml:"max_attempts"`
+	InitialBackoff Duration `yaml:"initial_backoff"`
 }
 
 type AlertTarget struct {
@@ -46,9 +57,10 @@ type Rule struct {
 }
 
 type Config struct {
-	Server    ServerConfig              `yaml:"server"`
-	Notifiers map[string]NotifierConfig `yaml:"notifiers"`
-	Rules     []Rule                    `yaml:"rules"`
+	Server      ServerConfig              `yaml:"server"`
+	Notifiers   map[string]NotifierConfig `yaml:"notifiers"`
+	Rules       []Rule                    `yaml:"rules"`
+	Persistence PersistenceConfig         `yaml:"persistence"`
 }
 
 // Load reads and parses a ding.yaml file.
@@ -82,6 +94,22 @@ func (cfg *Config) Validate() error {
 	if cfg.Server.MaxBufferSize == 0 {
 		cfg.Server.MaxBufferSize = 10000
 	}
+	if cfg.Server.ReadTimeout.Duration == 0 {
+		cfg.Server.ReadTimeout.Duration = 5 * time.Second
+	}
+	if cfg.Server.WriteTimeout.Duration == 0 {
+		cfg.Server.WriteTimeout.Duration = 10 * time.Second
+	}
+	if cfg.Server.IdleTimeout.Duration == 0 {
+		cfg.Server.IdleTimeout.Duration = 60 * time.Second
+	}
+	if cfg.Server.MaxBodyBytes == 0 {
+		cfg.Server.MaxBodyBytes = 1 << 20
+	}
+
+	if cfg.Persistence.StateFile != "" && cfg.Persistence.FlushInterval.Duration == 0 {
+		cfg.Persistence.FlushInterval.Duration = 30 * time.Second
+	}
 
 	validFormats := map[string]bool{"json": true, "prometheus": true, "auto": true}
 	if !validFormats[cfg.Server.Format] {
@@ -104,5 +132,18 @@ func (cfg *Config) Validate() error {
 			}
 		}
 	}
+
+	for name, nc := range cfg.Notifiers {
+		if nc.Type == "webhook" {
+			if nc.MaxAttempts == 0 {
+				nc.MaxAttempts = 3
+			}
+			if nc.InitialBackoff.Duration == 0 {
+				nc.InitialBackoff.Duration = 1 * time.Second
+			}
+			cfg.Notifiers[name] = nc
+		}
+	}
+
 	return nil
 }
