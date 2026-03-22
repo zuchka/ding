@@ -44,10 +44,18 @@ func (s *Server) Handler() http.Handler { return s.mux }
 // SwapEngine atomically replaces the engine (used by hot-reload).
 func (s *Server) SwapEngine(eng *evaluator.Engine, cfg *config.Config, notifiers map[string]notifier.Notifier) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	oldNotifiers := s.notifiers
 	s.engine = eng
 	s.cfg = cfg
 	s.notifiers = notifiers
+	s.mu.Unlock()
+
+	// Stop old notifier goroutines outside the lock.
+	for _, n := range oldNotifiers {
+		if stopper, ok := n.(interface{ Stop() }); ok {
+			stopper.Stop()
+		}
+	}
 }
 
 // BuildFromConfig loads a config file and builds an Engine + Notifiers.
@@ -88,7 +96,7 @@ func buildFromConfig(path string) (*evaluator.Engine, *config.Config, map[string
 	}
 	for name, nc := range cfg.Notifiers {
 		if nc.Type == "webhook" {
-			notifiers[name] = notifier.NewWebhookNotifier(nc.URL)
+			notifiers[name] = notifier.NewWebhookNotifier(nc.URL, nc.MaxAttempts, nc.InitialBackoff.Duration)
 		}
 	}
 
