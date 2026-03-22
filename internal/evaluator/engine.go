@@ -3,6 +3,7 @@ package evaluator
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -230,6 +231,39 @@ func LabelSetKey(labels map[string]string) string {
 		parts[i] = k + "=" + labels[k]
 	}
 	return strings.Join(parts, ",")
+}
+
+// StartFlusher starts a background goroutine that periodically saves engine state to path.
+// Returns a stop function that triggers a final flush and blocks until it completes.
+// The caller should initialize stopFlusher to a no-op before calling this, so shutdown
+// can call it unconditionally: var stopFlusher func() = func() {}
+func (e *Engine) StartFlusher(path string, interval time.Duration) func() {
+	done := make(chan struct{})
+	stop := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				snap := SnapshotEngine(e)
+				if err := SaveSnapshot(path, snap); err != nil {
+					log.Printf("ding: state flush failed: %v", err)
+				}
+			case <-stop:
+				snap := SnapshotEngine(e)
+				if err := SaveSnapshot(path, snap); err != nil {
+					log.Printf("ding: final state flush failed: %v", err)
+				}
+				return
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		<-done
+	}
 }
 
 func renderMessage(tmpl string, alert Alert) string {
