@@ -11,3 +11,4 @@ coverage.txt
 .DS_Store
 .idea/
 *.swp
+.worktrees/
