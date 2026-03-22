@@ -88,3 +88,64 @@ func TestMatch_EmptyMatchBlock(t *testing.T) {
 		t.Error("empty match block should match all events")
 	}
 }
+
+// ---- Ring buffer ----
+
+func TestRingBuffer_EvictsOldEntries(t *testing.T) {
+	rb := evaluator.NewRingBuffer(5*time.Minute, 1000)
+	now := time.Now()
+
+	rb.Add(10.0, now.Add(-6*time.Minute)) // old, should be evicted
+	rb.Add(20.0, now.Add(-1*time.Minute)) // recent
+	rb.Add(30.0, now)                     // recent
+
+	avg := rb.Avg(now)
+	// only the two recent entries (20+30)/2 = 25
+	if avg != 25.0 {
+		t.Errorf("expected avg 25, got %f", avg)
+	}
+}
+
+func TestRingBuffer_MaxSize(t *testing.T) {
+	rb := evaluator.NewRingBuffer(5*time.Minute, 3)
+	now := time.Now()
+	rb.Add(1.0, now)
+	rb.Add(2.0, now)
+	rb.Add(3.0, now)
+	rb.Add(4.0, now) // should evict first entry
+
+	if rb.Count(now) != 3 {
+		t.Errorf("expected count 3, got %d", int(rb.Count(now)))
+	}
+}
+
+func TestRingBuffer_EmptyReturnsZeroAndFalse(t *testing.T) {
+	rb := evaluator.NewRingBuffer(5*time.Minute, 1000)
+	now := time.Now()
+	if rb.HasEntries(now) {
+		t.Error("empty buffer should have no entries")
+	}
+}
+
+func TestRingBuffer_Aggregates(t *testing.T) {
+	rb := evaluator.NewRingBuffer(5*time.Minute, 1000)
+	now := time.Now()
+	for _, v := range []float64{10, 20, 30, 40, 50} {
+		rb.Add(v, now)
+	}
+	if rb.Avg(now) != 30 {
+		t.Errorf("avg: expected 30, got %f", rb.Avg(now))
+	}
+	if rb.Max(now) != 50 {
+		t.Errorf("max: expected 50, got %f", rb.Max(now))
+	}
+	if rb.Min(now) != 10 {
+		t.Errorf("min: expected 10, got %f", rb.Min(now))
+	}
+	if rb.Sum(now) != 150 {
+		t.Errorf("sum: expected 150, got %f", rb.Sum(now))
+	}
+	if rb.Count(now) != 5 {
+		t.Errorf("count: expected 5, got %f", rb.Count(now))
+	}
+}
