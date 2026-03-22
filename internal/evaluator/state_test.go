@@ -325,16 +325,27 @@ func TestStartFlusher_PeriodicFlush(t *testing.T) {
 	eng := makeWindowedEngine(t)
 	stopFlusher := eng.StartFlusher(path, 20*time.Millisecond)
 
-	time.Sleep(60 * time.Millisecond)
+	// Poll for file existence up to 2 seconds (deterministic, not sleep-dependent)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
 	stopFlusher()
 
-	// State file should exist
-	data, err := os.ReadFile(path)
-	if err != nil {
+	// State file must exist after the flusher has fired at least once
+	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected state file to exist: %v", err)
 	}
 
-	// Should be valid JSON
+	// Should contain valid JSON
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("could not read state file: %v", err)
+	}
 	var snap evaluator.StateSnapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
 		t.Fatalf("state file is not valid JSON: %v", err)
