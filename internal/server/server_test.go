@@ -110,3 +110,23 @@ func TestRulesEndpoint(t *testing.T) {
 		t.Errorf("expected 1 rule, got %d", len(rules))
 	}
 }
+
+func TestIngest_MethodNotAllowed(t *testing.T) {
+	srv := makeServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/ingest", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestReload_NoConfigPath(t *testing.T) {
+	srv := makeServer(t) // configPath is ""
+	req := httptest.NewRequest(http.MethodPost, "/reload", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
