@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/super-ding/ding/internal/config"
 	"github.com/super-ding/ding/internal/evaluator"
@@ -117,17 +116,5 @@ func (s *Server) IngestLine(line []byte) {
 		return
 	}
 
-	now := time.Now()
-	for _, event := range events {
-		alerts := eng.Process(event, now)
-		for _, alert := range alerts {
-			for _, name := range alert.Notifiers {
-				n, ok := notifiers[name]
-				if !ok {
-					continue
-				}
-				n.Send(alert)
-			}
-		}
-	}
+	s.processEvents(events, notifiers, eng)
 }

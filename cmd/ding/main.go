@@ -115,6 +115,8 @@ func runServe(configPath string) error {
 	}()
 
 	<-ctx.Done()
+	signal.Stop(sighup)
+	close(sighup)
 	log.Println("ding: shutting down...")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

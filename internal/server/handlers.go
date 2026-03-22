@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/super-ding/ding/internal/evaluator"
 	"github.com/super-ding/ding/internal/ingester"
+	"github.com/super-ding/ding/internal/notifier"
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -51,24 +53,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now()
-	totalAlerts := 0
-	for _, event := range events {
-		alerts := eng.Process(event, now)
-		totalAlerts += len(alerts)
-		for _, alert := range alerts {
-			for _, name := range alert.Notifiers {
-				n, ok := notifiers[name]
-				if !ok {
-					log.Printf("ding: unknown notifier %q for rule %q", name, alert.Rule)
-					continue
-				}
-				if err := n.Send(alert); err != nil {
-					log.Printf("ding: notifier %q error: %v", name, err)
-				}
-			}
-		}
-	}
+	totalAlerts := s.processEvents(events, notifiers, eng)
 
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"events":%d,"alerts_fired":%d}`, len(events), totalAlerts)
@@ -130,4 +115,26 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.WriteHeader(code)
 	data, _ := json.Marshal(map[string]string{"error": msg})
 	w.Write(data)
+}
+
+func (s *Server) processEvents(events []ingester.Event, notifiers map[string]notifier.Notifier, eng *evaluator.Engine) int {
+	now := time.Now()
+	totalAlerts := 0
+	for _, event := range events {
+		alerts := eng.Process(event, now)
+		totalAlerts += len(alerts)
+		for _, alert := range alerts {
+			for _, name := range alert.Notifiers {
+				n, ok := notifiers[name]
+				if !ok {
+					log.Printf("ding: unknown notifier %q for rule %q", name, alert.Rule)
+					continue
+				}
+				if err := n.Send(alert); err != nil {
+					log.Printf("ding: notifier %q error: %v", name, err)
+				}
+			}
+		}
+	}
+	return totalAlerts
 }
