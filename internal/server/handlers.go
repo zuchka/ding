@@ -118,5 +118,6 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	fmt.Fprintf(w, `{"error":%q}`, msg)
+	data, _ := json.Marshal(map[string]string{"error": msg})
+	w.Write(data)
 }
