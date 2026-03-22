@@ -1,0 +1,54 @@
+project_name: ding
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: ding
+    main: ./cmd/ding/
+    binary: ding
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: ding
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - ding.yaml.example
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/super-ding/ding:{{ .Tag }}-amd64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+  - image_templates:
+      - "ghcr.io/super-ding/ding:{{ .Tag }}-arm64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+
+docker_manifests:
+  - name_template: "ghcr.io/super-ding/ding:{{ .Tag }}"
+    image_templates:
+      - "ghcr.io/super-ding/ding:{{ .Tag }}-amd64"
+      - "ghcr.io/super-ding/ding:{{ .Tag }}-arm64"
+  - name_template: "ghcr.io/super-ding/ding:latest"
+    image_templates:
+      - "ghcr.io/super-ding/ding:{{ .Tag }}-amd64"
+      - "ghcr.io/super-ding/ding:{{ .Tag }}-arm64"
