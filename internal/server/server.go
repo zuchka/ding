@@ -2,11 +2,14 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/super-ding/ding/internal/config"
 	"github.com/super-ding/ding/internal/evaluator"
+	"github.com/super-ding/ding/internal/ingester"
 	"github.com/super-ding/ding/internal/notifier"
 )
 
@@ -91,4 +94,40 @@ func buildFromConfig(path string) (*evaluator.Engine, *config.Config, map[string
 	}
 
 	return eng, cfg, notifiers, nil
+}
+
+// IngestLine processes a single raw event line from stdin.
+func (s *Server) IngestLine(line []byte) {
+	s.mu.RLock()
+	cfg := s.cfg
+	eng := s.engine
+	notifiers := s.notifiers
+	s.mu.RUnlock()
+
+	format := ingester.DetectFormat(line, "", cfg.Server.Format)
+	var events []ingester.Event
+	var err error
+	if format == "json" {
+		events, err = ingester.ParseJSONLine(line)
+	} else {
+		events, err = ingester.ParsePrometheusText(line)
+	}
+	if err != nil {
+		log.Printf("ding: stdin parse error: %v", err)
+		return
+	}
+
+	now := time.Now()
+	for _, event := range events {
+		alerts := eng.Process(event, now)
+		for _, alert := range alerts {
+			for _, name := range alert.Notifiers {
+				n, ok := notifiers[name]
+				if !ok {
+					continue
+				}
+				n.Send(alert)
+			}
+		}
+	}
 }
