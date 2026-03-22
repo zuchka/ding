@@ -30,7 +30,7 @@ func makeServer(t *testing.T) *server.Server {
 	notifiers := map[string]notifier.Notifier{
 		"stdout": notifier.NewStdoutNotifier(bytes.NewBuffer(nil)),
 	}
-	cfg := &config.Config{Server: config.ServerConfig{Format: "json"}}
+	cfg := &config.Config{Server: config.ServerConfig{Format: "json", MaxBodyBytes: 1 << 20}}
 	return server.New(eng, notifiers, cfg, "")
 }
 
@@ -128,5 +128,66 @@ func TestReload_NoConfigPath(t *testing.T) {
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func makeServerWithMaxBodyBytes(t *testing.T, maxBodyBytes int64) *server.Server {
+	t.Helper()
+	rules := []evaluator.EngineRule{
+		{
+			Name:      "cpu_spike",
+			Match:     map[string]string{"metric": "cpu_usage"},
+			Condition: "value > 90",
+			Alerts:    []string{"stdout"},
+		},
+	}
+	eng, err := evaluator.NewEngine(rules, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notifiers := map[string]notifier.Notifier{
+		"stdout": notifier.NewStdoutNotifier(bytes.NewBuffer(nil)),
+	}
+	cfg := &config.Config{Server: config.ServerConfig{Format: "json", MaxBodyBytes: maxBodyBytes}}
+	return server.New(eng, notifiers, cfg, "")
+}
+
+func TestIngest_BodyTooLarge(t *testing.T) {
+	// Set limit below the minimum valid event body size so any content triggers 413.
+	srv := makeServerWithMaxBodyBytes(t, 10)
+	body := bytes.Repeat([]byte("x"), 11)
+	req := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestIngest_BodyAtLimit(t *testing.T) {
+	// {"metric":"x","value":1} is 24 bytes — the smallest valid event body.
+	// Set the limit to exactly 24 bytes; the request should succeed (200).
+	body := []byte(`{"metric":"x","value":1}`)
+	srv := makeServerWithMaxBodyBytes(t, int64(len(body)))
+	req := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestIngest_BodyJustOverLimit(t *testing.T) {
+	// Set limit to 1 byte below the body length so MaxBytesReader triggers 413.
+	body := []byte(`{"metric":"x","value":1}`)
+	srv := makeServerWithMaxBodyBytes(t, int64(len(body))-1)
+	req := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d: %s", w.Code, w.Body.String())
 	}
 }

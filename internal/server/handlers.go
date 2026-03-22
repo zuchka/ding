@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -28,17 +29,23 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		jsonError(w, "reading body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
+	// Acquire cfg FIRST so MaxBodyBytes is available for MaxBytesReader.
 	s.mu.RLock()
 	cfg := s.cfg
 	eng := s.engine
 	notifiers := s.notifiers
 	s.mu.RUnlock()
+
+	r.Body = http.MaxBytesReader(w, r.Body, cfg.Server.MaxBodyBytes)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		if errors.As(err, new(*http.MaxBytesError)) {
+			jsonError(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		jsonError(w, "reading body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	format := ingester.DetectFormat(body, r.Header.Get("Content-Type"), cfg.Server.Format)
 	var events []ingester.Event

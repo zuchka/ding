@@ -82,8 +82,11 @@ func runServe(configPath string) error {
 	}
 
 	httpSrv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler: srv.Handler(),
+		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler:      srv.Handler(),
+		ReadTimeout:  cfg.Server.ReadTimeout.Duration,
+		WriteTimeout: cfg.Server.WriteTimeout.Duration,
+		IdleTimeout:  cfg.Server.IdleTimeout.Duration,
 	}
 
 	// Signal handling
