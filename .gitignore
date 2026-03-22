@@ -1,0 +1,13 @@
+# Binaries
+ding
+dist/
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# Editor
+.DS_Store
+.idea/
+*.swp
