@@ -149,3 +149,122 @@ func TestRingBuffer_Aggregates(t *testing.T) {
 		t.Errorf("count: expected 5, got %f", rb.Count(now))
 	}
 }
+
+// ---- Cooldown ----
+
+func TestCooldown_NotActive(t *testing.T) {
+	cd := evaluator.NewCooldownTracker()
+	if cd.IsActive("rule1", "host=web-01") {
+		t.Error("should not be active before being set")
+	}
+}
+
+func TestCooldown_ActiveAfterSet(t *testing.T) {
+	cd := evaluator.NewCooldownTracker()
+	cd.Set("rule1", "host=web-01", 5*time.Minute)
+	if !cd.IsActive("rule1", "host=web-01") {
+		t.Error("should be active after being set")
+	}
+}
+
+func TestCooldown_PerLabelSet(t *testing.T) {
+	cd := evaluator.NewCooldownTracker()
+	cd.Set("rule1", "host=web-01", 5*time.Minute)
+	if cd.IsActive("rule1", "host=web-02") {
+		t.Error("cooldown should not bleed across label sets")
+	}
+}
+
+// ---- Engine ----
+
+func makeTestEngine(t *testing.T) *evaluator.Engine {
+	t.Helper()
+	rules := []evaluator.EngineRule{
+		{
+			Name:      "cpu_spike",
+			Match:     map[string]string{"metric": "cpu_usage"},
+			Condition: "value > 90",
+			Cooldown:  0, // no cooldown for testing
+			Message:   "CPU spike: {{ .value }}",
+			Alerts:    []string{"stdout"},
+		},
+	}
+	eng, err := evaluator.NewEngine(rules, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return eng
+}
+
+func TestEngine_FiresOnThreshold(t *testing.T) {
+	eng := makeTestEngine(t)
+	now := time.Now()
+	event := ingester.Event{Metric: "cpu_usage", Value: 97, Labels: map[string]string{"host": "web-01"}, At: now}
+	alerts := eng.Process(event, now)
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(alerts))
+	}
+	if alerts[0].Rule != "cpu_spike" {
+		t.Errorf("expected rule cpu_spike, got %s", alerts[0].Rule)
+	}
+}
+
+func TestEngine_DoesNotFireBelowThreshold(t *testing.T) {
+	eng := makeTestEngine(t)
+	now := time.Now()
+	event := ingester.Event{Metric: "cpu_usage", Value: 85, Labels: map[string]string{"host": "web-01"}, At: now}
+	alerts := eng.Process(event, now)
+	if len(alerts) != 0 {
+		t.Errorf("expected no alerts, got %d", len(alerts))
+	}
+}
+
+func TestEngine_CooldownPreventsRefiring(t *testing.T) {
+	rules := []evaluator.EngineRule{
+		{
+			Name:      "cpu_spike",
+			Match:     map[string]string{"metric": "cpu_usage"},
+			Condition: "value > 90",
+			Cooldown:  5 * time.Minute,
+			Message:   "CPU spike",
+			Alerts:    []string{"stdout"},
+		},
+	}
+	eng, _ := evaluator.NewEngine(rules, 1000)
+	now := time.Now()
+	event := ingester.Event{Metric: "cpu_usage", Value: 97, Labels: map[string]string{"host": "web-01"}, At: now}
+
+	first := eng.Process(event, now)
+	second := eng.Process(event, now)
+
+	if len(first) != 1 {
+		t.Fatalf("expected first alert, got %d", len(first))
+	}
+	if len(second) != 0 {
+		t.Fatalf("expected no second alert (cooldown), got %d", len(second))
+	}
+}
+
+func TestEngine_Windowed_FiresOnAvg(t *testing.T) {
+	rules := []evaluator.EngineRule{
+		{
+			Name:      "cpu_sustained",
+			Match:     map[string]string{"metric": "cpu_usage"},
+			Condition: "avg(value) over 5m > 80",
+			Cooldown:  0,
+			Message:   "Sustained CPU",
+			Alerts:    []string{"stdout"},
+		},
+	}
+	eng, _ := evaluator.NewEngine(rules, 1000)
+	now := time.Now()
+	// Feed values all above 80
+	for _, v := range []float64{85, 90, 87, 92} {
+		eng.Process(ingester.Event{Metric: "cpu_usage", Value: v, Labels: map[string]string{}, At: now}, now)
+	}
+	// Expect alert on last event
+	alerts := eng.Process(ingester.Event{Metric: "cpu_usage", Value: 91, Labels: map[string]string{}, At: now}, now)
+	if len(alerts) == 0 {
+		t.Fatal("expected alert for sustained high avg")
+	}
+}
