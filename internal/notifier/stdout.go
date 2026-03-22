@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 
 	"github.com/super-ding/ding/internal/evaluator"
 )
@@ -33,16 +32,3 @@ func (n *StdoutNotifier) Send(alert evaluator.Alert) error {
 	return err
 }
 
-func buildPayload(alert evaluator.Alert) map[string]interface{} {
-	p := map[string]interface{}{
-		"rule":     alert.Rule,
-		"message":  alert.Message,
-		"metric":   alert.Metric,
-		"value":    alert.Value,
-		"fired_at": alert.FiredAt.Format(time.RFC3339),
-	}
-	for k, v := range alert.Labels {
-		p[k] = v
-	}
-	return p
-}

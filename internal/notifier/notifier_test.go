@@ -76,3 +76,15 @@ func TestWebhookNotifier_FailsSilently(t *testing.T) {
 		t.Errorf("expected silent failure, got error: %v", err)
 	}
 }
+
+func TestWebhookNotifier_FailsSilentlyOn4xx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	n := notifier.NewWebhookNotifier(srv.URL)
+	if err := n.Send(makeAlert()); err != nil {
+		t.Errorf("expected silent failure on 4xx, got error: %v", err)
+	}
+}
