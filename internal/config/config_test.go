@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,7 +97,9 @@ func TestValidate_MissingNotifier(t *testing.T) {
 
 func TestValidate_DefaultPort(t *testing.T) {
 	cfg := &config.Config{}
-	_ = cfg.Validate()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if cfg.Server.Port != 8080 {
 		t.Errorf("expected default port 8080, got %d", cfg.Server.Port)
 	}
@@ -170,5 +173,23 @@ func TestValidate_WebhookRetryDefaults(t *testing.T) {
 	}
 	if nc.InitialBackoff.Duration != 1*time.Second {
 		t.Errorf("expected InitialBackoff 1s, got %v", nc.InitialBackoff.Duration)
+	}
+}
+
+func TestValidate_WebhookMissingURL(t *testing.T) {
+	cfg := &config.Config{
+		Notifiers: map[string]config.NotifierConfig{
+			"my-webhook": {
+				Type: "webhook",
+				URL:  "",
+			},
+		},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for webhook missing url, got nil")
+	}
+	if !strings.Contains(err.Error(), "requires a url") {
+		t.Errorf("expected error to contain \"requires a url\", got: %v", err)
 	}
 }

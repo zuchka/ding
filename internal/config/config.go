@@ -134,6 +134,9 @@ func (cfg *Config) Validate() error {
 	}
 
 	for name, nc := range cfg.Notifiers {
+		if nc.Type == "webhook" && nc.URL == "" {
+			return fmt.Errorf("notifier %q: webhook type requires a url", name)
+		}
 		if nc.Type == "webhook" {
 			if nc.MaxAttempts == 0 {
 				nc.MaxAttempts = 3
