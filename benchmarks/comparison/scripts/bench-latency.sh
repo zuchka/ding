@@ -14,6 +14,15 @@
 
 set -euo pipefail
 
+# ns_now: portable nanosecond timestamp (macOS BSD date lacks %N)
+ns_now() {
+  if command -v gdate > /dev/null 2>&1; then
+    gdate +%s%N
+  else
+    python3 -c "import time; print(int(time.time()*1e9))"
+  fi
+}
+
 SYSTEM="${1:?system required}"
 INGEST_URL="${2:?ingest_url required}"
 WEBHOOK_LOG="${3:?webhook_log required}"
@@ -26,7 +35,7 @@ for i in $(seq 1 "$RUNS"); do
   > "$WEBHOOK_LOG"
 
   # Record send time (nanoseconds)
-  t_send=$(date +%s%N)
+  t_send=$(ns_now)
 
   case "$SYSTEM" in
     ding)
@@ -54,11 +63,11 @@ EOF
   # Wait for webhook receipt — poll every 10ms up to 15 seconds.
   # Timeout is tracked in wall-clock nanoseconds so it works for both
   # Ding (<10ms) and Prometheus (up to 120s with default settings).
-  t_poll_start=$(date +%s%N)
+  t_poll_start=$(ns_now)
   timeout_ns=$(( 15 * 1000000000 ))
   while [ ! -s "$WEBHOOK_LOG" ]; do
     sleep 0.01
-    t_now=$(date +%s%N)
+    t_now=$(ns_now)
     if (( t_now - t_poll_start >= timeout_ns )); then
       break
     fi

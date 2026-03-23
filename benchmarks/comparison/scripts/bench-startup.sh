@@ -46,7 +46,12 @@ time_to_healthy() {
     local t_ready
     t_ready=$(ns_now)
     eval "$stop_cmd $pid" 2>/dev/null || true
-    sleep 0.2  # brief pause between runs
+    # Wait for the port to be released before the next run
+    local attempts=0
+    while lsof -ti :8080 > /dev/null 2>&1 && (( attempts < 50 )); do
+      sleep 0.1
+      attempts=$(( attempts + 1 ))
+    done
 
     if $ready; then
       local ms=$(( (t_ready - t_start) / 1000000 ))
