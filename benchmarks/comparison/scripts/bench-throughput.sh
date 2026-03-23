@@ -4,7 +4,7 @@
 # Measures max events/sec for Ding (HTTP) and Prometheus (remote_write).
 # Outputs JSON: {"ding_http":{"rps":94000,"p99_ms":12},"prometheus":{"rps":78000,"p99_ms":18}}
 #
-# Prerequisites: hey installed, Ding running on :8080, Prometheus on :9090
+# Prerequisites: hey installed, jq installed, Ding running on :8080, Prometheus on :9090
 
 set -euo pipefail
 
@@ -27,6 +27,9 @@ run_hey() {
   rps=$(echo "$out" | grep 'Requests/sec:' | awk '{printf "%d", $2}')
   p99=$(echo "$out" | grep '99%' | awk '{printf "%d", $2 * 1000}')  # hey reports seconds
 
+  [[ -n "$rps" ]] || { echo "ERROR: could not parse 'Requests/sec:' from hey output" >&2; exit 1; }
+  [[ -n "$p99" ]] || { echo "ERROR: could not parse '99%' from hey output" >&2; exit 1; }
+
   echo "{\"rps\":$rps,\"p99_ms\":$p99}"
 }
 
@@ -46,9 +49,18 @@ if command -v pv > /dev/null; then
   TOTAL_BYTES=$(( 10 * 1024 * 1024 ))        # 10MB
   TOTAL_LINES=$(( TOTAL_BYTES / EVENT_BYTES ))
 
-  bytes_per_sec=$(yes "$EVENT_LINE" | head -n "$TOTAL_LINES" | \
-    pv -s "$TOTAL_BYTES" -n -b 2>&1 | \
-    awk 'END{print $1}')
+  # Measure pipe throughput as an upper bound for stdin ingestion rate.
+  # Ding auto-detects stdin pipes but doesn't exit on EOF (HTTP server continues),
+  # so timing a live Ding process via stdin is not cleanly scriptable here.
+  # Pipe to /dev/null to measure raw kernel pipe throughput; this is the ceiling
+  # Ding's stdin path cannot exceed.
+  t_start=$(date +%s%N)
+  yes "$EVENT_LINE" | head -n "$TOTAL_LINES" | pv -q > /dev/null
+  t_end=$(date +%s%N)
+  elapsed_ns=$(( t_end - t_start ))
+  total_bytes=$(( TOTAL_LINES * EVENT_BYTES ))
+  # integer bytes/sec: multiply first to avoid losing precision in shell arithmetic
+  bytes_per_sec=$(( total_bytes * 1000000000 / (elapsed_ns > 0 ? elapsed_ns : 1) ))
   ding_stdin_rps=$(( bytes_per_sec / EVENT_BYTES ))
   ding_stdin='{"rps":'"$ding_stdin_rps"'}'
 else
