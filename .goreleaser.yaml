@@ -52,3 +52,16 @@ docker_manifests:
     image_templates:
       - "ghcr.io/zuchka/ding:{{ .Tag }}-amd64"
       - "ghcr.io/zuchka/ding:{{ .Tag }}-arm64"
+
+brews:
+  - repository:
+      owner: zuchka
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://ding.ing
+    description: Stream-based alerting daemon — single binary, zero infrastructure
+    license: MIT
+    install: |
+      bin.install "ding"
+    test: |
+      system "#{bin}/ding", "--version"

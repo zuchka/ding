@@ -376,7 +376,7 @@ zuchka/
 | GitHub Releases | GoReleaser; binaries for all platforms |
 | Homebrew | `brew install zuchka/tap/ding` |
 | Docker | `docker run -v ./ding.yaml:/etc/ding/ding.yaml ghcr.io/zuchka/ding` |
-| Install script | `curl -sf https://install.ding.sh \| sh` |
+| Install script | `curl -sf https://install.ding.ing \| sh` |
 
 ---
 

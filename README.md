@@ -13,7 +13,7 @@ brew install zuchka/tap/ding
 
 **Binary download:**
 ```
-curl -sf https://install.ding.sh | sh
+curl -sf https://install.ding.ing | sh
 ```
 
 **Docker:**

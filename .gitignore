@@ -7,8 +7,16 @@ dist/
 *.out
 coverage.txt
 
+# Config (keep example, ignore real)
+ding.yaml
+.env
+
 # Editor
 .DS_Store
 .idea/
+.vscode/
 *.swp
 .worktrees/
+
+# Scratch
+tmp/
