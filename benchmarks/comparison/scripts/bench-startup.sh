@@ -48,7 +48,7 @@ time_to_healthy() {
     eval "$stop_cmd $pid" 2>/dev/null || true
     # Wait for the port to be released before the next run
     local attempts=0
-    while lsof -ti :8080 > /dev/null 2>&1 && (( attempts < 50 )); do
+    while lsof -ti :8083 > /dev/null 2>&1 && (( attempts < 50 )); do
       sleep 0.1
       attempts=$(( attempts + 1 ))
     done
@@ -76,6 +76,8 @@ time_to_healthy() {
 # Ding
 DING_CFG=$(mktemp /tmp/ding-startup-XXXXXX.yaml)
 cat > "$DING_CFG" << 'EOF'
+server:
+  port: 8083
 rules:
   - name: test
     metric: cpu_usage
@@ -85,7 +87,7 @@ rules:
 EOF
 ding=$(time_to_healthy "ding" \
   "./ding serve --config \"$DING_CFG\"" \
-  "http://localhost:8080/health" \
+  "http://localhost:8083/health" \
   "kill")
 
 # Prometheus (cold — remove data dir between runs)
