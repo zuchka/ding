@@ -260,8 +260,9 @@ func (e *Engine) StartFlusher(path string, interval time.Duration) func() {
 			}
 		}
 	}()
+	var once sync.Once
 	return func() {
-		close(stop)
+		once.Do(func() { close(stop) })
 		<-done
 	}
 }
