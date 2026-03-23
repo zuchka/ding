@@ -75,8 +75,8 @@ rules:
   - name: test
     metric: cpu_usage
     condition: value > 95
-    notify:
-      - webhook: http://localhost:9999/
+    alert:
+      - notifier: stdout
 EOF
 ding=$(time_to_healthy "ding" \
   "./ding serve --config \"$DING_CFG\"" \

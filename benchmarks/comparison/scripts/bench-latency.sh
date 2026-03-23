@@ -75,6 +75,12 @@ EOF
 done
 
 # Compute p50 and p99
+if (( ${#samples[@]} == 0 )); then
+  echo "ERROR: bench-latency.sh($SYSTEM): no successful samples — webhook never received" >&2
+  jq -n --arg system "$SYSTEM" '{"system":$system,"p50_ms":null,"p99_ms":null,"samples":[],"error":"no webhook receipts"}'
+  exit 1
+fi
+
 sorted=($(printf '%s\n' "${samples[@]}" | sort -n))
 count=${#sorted[@]}
 p50_idx=$(( count / 2 ))

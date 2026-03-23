@@ -15,14 +15,18 @@ count_lines() {
 # Ding: a minimal single-rule config
 DING_CFG=$(mktemp /tmp/ding-cfg-XXXXXX.yaml)
 cat > "$DING_CFG" << 'EOF'
+notifiers:
+  alert-wh:
+    type: webhook
+    url: https://hooks.example.com/alert
 rules:
   - name: high_cpu
     metric: cpu_usage
     condition: avg(value) over 5m > 80
     cooldown: 10m
     message: "CPU high on {{ .host }}: avg={{ .avg }}"
-    notify:
-      - webhook: https://hooks.example.com/alert
+    alert:
+      - notifier: alert-wh
 EOF
 ding_lines=$(count_lines "$DING_CFG")
 

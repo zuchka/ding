@@ -54,13 +54,17 @@ trap "kill $WH_PID 2>/dev/null; rm -f $WH_LOG" EXIT
 # ── 4. Start Ding ──────────────────────────────────────────────────────────
 DING_CFG=$(mktemp /tmp/ding-run-XXXXXX.yaml)
 cat > "$DING_CFG" << 'EOF'
+notifiers:
+  bench-wh:
+    type: webhook
+    url: http://localhost:9998/
 rules:
   - name: high_cpu
     metric: cpu_usage
     condition: value > 95
     cooldown: 1ms
-    notify:
-      - webhook: http://localhost:9998/
+    alert:
+      - notifier: bench-wh
 EOF
 "$REPO_ROOT/ding" serve --config "$DING_CFG" > /tmp/ding-bench.log 2>&1 &
 DING_PID=$!

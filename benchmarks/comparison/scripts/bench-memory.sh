@@ -15,15 +15,21 @@ SAMPLE_INTERVAL=30
 # Generate a 100-rule Ding config
 gen_ding_config() {
   local path="$1"
-  echo "rules:" > "$path"
+  cat > "$path" << 'HEADER'
+notifiers:
+  bench-wh:
+    type: webhook
+    url: http://localhost:9999/
+rules:
+HEADER
   for i in $(seq 0 99); do
     cat >> "$path" << EOF
   - name: rule_$(printf '%03d' $i)
     metric: cpu_usage_$i
     condition: avg(value) over 5m > 80
     cooldown: 1m
-    notify:
-      - webhook: http://localhost:9999/
+    alert:
+      - notifier: bench-wh
 EOF
   done
 }
