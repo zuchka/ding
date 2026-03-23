@@ -28,10 +28,10 @@ time_to_healthy() {
 
   local times=()
   for _i in $(seq 1 "$RUNS"); do
-    eval "$start_cmd" &
-    local pid=$!
     local t_start
     t_start=$(ns_now)
+    eval "$start_cmd" &
+    local pid=$!
 
     # Poll health endpoint
     local ready=false
