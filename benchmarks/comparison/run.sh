@@ -71,7 +71,7 @@ rules:
 EOF
 "$REPO_ROOT/ding" serve --config "$DING_CFG" > /tmp/ding-bench.log 2>&1 &
 DING_PID=$!
-trap "kill $DING_PID 2>/dev/null; kill $WH_PID 2>/dev/null; rm -f $WH_LOG $DING_CFG" EXIT
+trap "kill $DING_PID 2>/dev/null || true; kill $WH_PID 2>/dev/null || true; rm -f $WH_LOG $DING_CFG" EXIT
 sleep 1
 
 # ── 5. Run Go benchmarks ───────────────────────────────────────────────────
@@ -79,7 +79,7 @@ log "Running Go engine benchmarks..."
 go_bench=$(cd "$REPO_ROOT" && \
   go test -bench=. -benchmem -benchtime=5s -run='^$' ./benchmarks/go/ 2>&1 | \
   grep '^Benchmark' | \
-  jq -Rs '[split("\n")[] | select(length>0) | split(" ") | {name:.[0], ns_op:.[2]}]')
+  jq -Rs '[split("\n")[] | select(length>0) | gsub("\t";" ") | gsub(" +";" ") | split(" ") | {name:.[0], ns_op:.[2]}]')
 
 # ── 6. Alert latency ──────────────────────────────────────────────────────
 log "Benchmarking Ding alert latency (100 runs)..."

@@ -25,12 +25,15 @@ time_to_healthy() {
   local start_cmd="$2"
   local health_url="$3"
   local stop_cmd="$4"
+  # Extract port from health URL (e.g. http://localhost:8083/health → 8083)
+  local port
+  port=$(echo "$health_url" | grep -oE ':[0-9]+' | head -1 | tr -d ':')
 
   local times=()
   for _i in $(seq 1 "$RUNS"); do
     local t_start
     t_start=$(ns_now)
-    eval "$start_cmd" &
+    eval "$start_cmd" > /dev/null 2>&1 &
     local pid=$!
 
     # Poll health endpoint
@@ -45,10 +48,15 @@ time_to_healthy() {
 
     local t_ready
     t_ready=$(ns_now)
+    # Graceful stop, then force-kill pid and any orphaned ding/docker processes
     eval "$stop_cmd $pid" 2>/dev/null || true
+    sleep 0.1
+    kill -9 "$pid" 2>/dev/null || true
+    pkill -9 -f "ding serve" 2>/dev/null || true
+    docker rm -f $(docker ps -q --filter "publish=$port") > /dev/null 2>&1 || true
     # Wait for the port to be released before the next run
     local attempts=0
-    while nc -z 127.0.0.1 8083 2>/dev/null && (( attempts < 50 )); do
+    while nc -z 127.0.0.1 "$port" 2>/dev/null && (( attempts < 100 )); do
       sleep 0.1
       attempts=$(( attempts + 1 ))
     done
@@ -90,11 +98,13 @@ ding=$(time_to_healthy "ding" \
   "http://localhost:8083/health" \
   "kill")
 
-# Prometheus (cold — remove data dir between runs)
+# Prometheus (cold — run in foreground so kill $pid propagates to container)
+# Pre-clean any leftover containers occupying port 9090
+docker rm -f $(docker ps -q --filter "publish=9090") > /dev/null 2>&1 || true
 prometheus_cold=$(time_to_healthy "prometheus_cold" \
-  "docker run --rm -d -p 9090:9090 -v $(pwd)/benchmarks/comparison/prometheus.yml:/etc/prometheus/prometheus.yml prom/prometheus:v2.51.0" \
+  "docker run --rm -p 9090:9090 -v $(pwd)/benchmarks/comparison/prometheus.yml:/etc/prometheus/prometheus.yml:ro prom/prometheus:v2.51.0" \
   "http://localhost:9090/-/healthy" \
-  "docker stop")
+  "kill")
 
 rm -f "$DING_CFG"
 
