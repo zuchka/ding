@@ -54,6 +54,12 @@ time_to_healthy() {
     fi
   done
 
+  if (( ${#times[@]} == 0 )); then
+    echo "ERROR: time_to_healthy($name): no successful runs — health check never fired" >&2
+    echo "{\"name\":\"$name\",\"p50_ms\":null,\"p99_ms\":null,\"error\":\"no successful runs\"}"
+    return
+  fi
+
   local sorted=($(printf '%s\n' "${times[@]}" | sort -n))
   local count=${#sorted[@]}
   local p50=${sorted[$(( count / 2 ))]}
@@ -73,7 +79,7 @@ rules:
       - webhook: http://localhost:9999/
 EOF
 ding=$(time_to_healthy "ding" \
-  "./ding serve --config $DING_CFG" \
+  "./ding serve --config \"$DING_CFG\"" \
   "http://localhost:8080/health" \
   "kill")
 

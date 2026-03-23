@@ -62,7 +62,13 @@ flood_ding "http://localhost:8080"
 SAMPLE_COUNT=0
 declare -a DING_SAMPLES PROM_SAMPLES AM_SAMPLES DD_SAMPLES
 
-parse_mib() { echo "$1" | awk -F'[iB /]' '{printf "%d", $1}'; }
+# parse_mib: extract integer MiB from docker stats MemUsage string (e.g. "38.2MiB / 7.77GiB").
+# Returns 0 if the string is not parseable rather than silently corrupting the mean.
+parse_mib() {
+  local val
+  val=$(echo "$1" | grep -oE '^[0-9]+(\.[0-9]+)?MiB' | grep -oE '^[0-9]+')
+  echo "${val:-0}"
+}
 
 t_end=$(( $(date +%s) + DURATION ))
 while [ "$(date +%s)" -lt "$t_end" ]; do
@@ -99,6 +105,11 @@ mean_last5() {
     sum=$(( sum + arr[i] ))
   done
   local count=$(( n - start ))
+  if (( count == 0 )); then
+    echo "ERROR: mean_last5 called with empty array" >&2
+    echo 0
+    return
+  fi
   echo $(( sum / count ))
 }
 
