@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/super-ding/ding/internal/config"
-	"github.com/super-ding/ding/internal/evaluator"
-	"github.com/super-ding/ding/internal/ingester"
-	"github.com/super-ding/ding/internal/notifier"
+	"github.com/zuchka/ding/internal/config"
+	"github.com/zuchka/ding/internal/evaluator"
+	"github.com/zuchka/ding/internal/ingester"
+	"github.com/zuchka/ding/internal/notifier"
 )
 
 // Server holds the HTTP server state.

@@ -7,10 +7,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/super-ding/ding/internal/config"
-	"github.com/super-ding/ding/internal/evaluator"
-	"github.com/super-ding/ding/internal/notifier"
-	"github.com/super-ding/ding/internal/server"
+	"github.com/zuchka/ding/internal/config"
+	"github.com/zuchka/ding/internal/evaluator"
+	"github.com/zuchka/ding/internal/notifier"
+	"github.com/zuchka/ding/internal/server"
 )
 
 func makeServer(t *testing.T) *server.Server {

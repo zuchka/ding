@@ -8,7 +8,7 @@ DING is a stream-based alerting daemon — a single binary that listens for metr
 
 **Homebrew:**
 ```
-brew install super-ding/tap/ding
+brew install zuchka/tap/ding
 ```
 
 **Binary download:**
@@ -18,7 +18,7 @@ curl -sf https://install.ding.sh | sh
 
 **Docker:**
 ```
-docker run -v ./ding.yaml:/etc/ding/ding.yaml ghcr.io/super-ding/ding
+docker run -v ./ding.yaml:/etc/ding/ding.yaml ghcr.io/zuchka/ding
 ```
 
 ## Quickstart

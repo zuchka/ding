@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/super-ding/ding/internal/evaluator"
-	"github.com/super-ding/ding/internal/ingester"
+	"github.com/zuchka/ding/internal/evaluator"
+	"github.com/zuchka/ding/internal/ingester"
 )
 
 // helper: create a windowed engine with a single rule

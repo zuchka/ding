@@ -33,22 +33,22 @@ checksum:
 
 dockers:
   - image_templates:
-      - "ghcr.io/super-ding/ding:{{ .Tag }}-amd64"
+      - "ghcr.io/zuchka/ding:{{ .Tag }}-amd64"
     use: buildx
     build_flag_templates:
       - "--platform=linux/amd64"
   - image_templates:
-      - "ghcr.io/super-ding/ding:{{ .Tag }}-arm64"
+      - "ghcr.io/zuchka/ding:{{ .Tag }}-arm64"
     use: buildx
     build_flag_templates:
       - "--platform=linux/arm64"
 
 docker_manifests:
-  - name_template: "ghcr.io/super-ding/ding:{{ .Tag }}"
+  - name_template: "ghcr.io/zuchka/ding:{{ .Tag }}"
     image_templates:
-      - "ghcr.io/super-ding/ding:{{ .Tag }}-amd64"
-      - "ghcr.io/super-ding/ding:{{ .Tag }}-arm64"
-  - name_template: "ghcr.io/super-ding/ding:latest"
+      - "ghcr.io/zuchka/ding:{{ .Tag }}-amd64"
+      - "ghcr.io/zuchka/ding:{{ .Tag }}-arm64"
+  - name_template: "ghcr.io/zuchka/ding:latest"
     image_templates:
-      - "ghcr.io/super-ding/ding:{{ .Tag }}-amd64"
-      - "ghcr.io/super-ding/ding:{{ .Tag }}-arm64"
+      - "ghcr.io/zuchka/ding:{{ .Tag }}-amd64"
+      - "ghcr.io/zuchka/ding:{{ .Tag }}-arm64"

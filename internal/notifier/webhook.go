@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/super-ding/ding/internal/evaluator"
+	"github.com/zuchka/ding/internal/evaluator"
 )
 
 type retryItem struct {

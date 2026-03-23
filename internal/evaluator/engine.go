@@ -10,7 +10,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/super-ding/ding/internal/ingester"
+	"github.com/zuchka/ding/internal/ingester"
 )
 
 // EngineRule is the fully-resolved rule fed to the Engine.

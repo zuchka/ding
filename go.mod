@@ -1,4 +1,4 @@
-module github.com/super-ding/ding
+module github.com/zuchka/ding
 
 go 1.22
 
