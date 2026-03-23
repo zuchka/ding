@@ -60,7 +60,18 @@ func BenchmarkProcessWindowedRule(b *testing.B) {
 		Labels: map[string]string{"host": "web-01"},
 		At:     time.Now(),
 	}
-	now := time.Now()
+	// Warm up ring buffer to 1000 entries before measuring
+	warmNow := time.Now().Add(10 * time.Minute) // far enough ahead that all entries are in window
+	for j := 0; j < 1000; j++ {
+		warmEvent := ingester.Event{
+			Metric: event.Metric,
+			Value:  event.Value,
+			Labels: event.Labels,
+			At:     time.Now().Add(time.Duration(j) * time.Millisecond),
+		}
+		engine.Process(warmEvent, warmNow)
+	}
+	now := warmNow
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -91,7 +102,18 @@ func BenchmarkProcess100Rules(b *testing.B) {
 		Labels: map[string]string{"host": "web-01"},
 		At:     time.Now(),
 	}
-	now := time.Now()
+	// Warm up ring buffer to 1000 entries before measuring
+	warmNow := time.Now().Add(10 * time.Minute) // far enough ahead that all entries are in window
+	for j := 0; j < 1000; j++ {
+		warmEvent := ingester.Event{
+			Metric: event.Metric,
+			Value:  event.Value,
+			Labels: event.Labels,
+			At:     time.Now().Add(time.Duration(j) * time.Millisecond),
+		}
+		engine.Process(warmEvent, warmNow)
+	}
+	now := warmNow
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -122,16 +144,15 @@ func BenchmarkEngineInit(b *testing.B) {
 	}
 }
 
-// BenchmarkEngineSwap measures the cost of creating a replacement engine —
-// simulates the hot-reload code path where a new engine is built from the
-// same rule set and then atomically swapped in. The swap itself (mutex Lock)
-// is O(1); the cost is dominated by NewEngine parsing all rules.
-func BenchmarkEngineSwap(b *testing.B) {
-	rules := make([]evaluator.EngineRule, 10)
+// BenchmarkEngineReinit measures the cost of building a replacement engine —
+// the dominant cost in a hot-reload where a new engine is created from an
+// existing rule set. The cost is dominated by NewEngine parsing all rules.
+func BenchmarkEngineReinit(b *testing.B) {
+	rules := make([]evaluator.EngineRule, 100)
 	for i := range rules {
 		rules[i] = evaluator.EngineRule{
-			Name:      fmt.Sprintf("rule_%02d", i),
-			Condition: "value > 80",
+			Name:      fmt.Sprintf("rule_%03d", i),
+			Condition: "avg(value) over 5m > 80",
 			Cooldown:  0,
 			Alerts:    []string{},
 		}
@@ -140,7 +161,7 @@ func BenchmarkEngineSwap(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	_ = engine // original engine; swap target is a new one built each iteration
+	_ = engine // original engine; replacement is a new one built each iteration
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
