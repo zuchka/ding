@@ -20,3 +20,6 @@ ding.yaml
 
 # Scratch
 tmp/
+
+# Wrangler / Cloudflare (contains account tokens)
+.wrangler/
