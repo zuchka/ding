@@ -1,0 +1,191 @@
+{
+  "run_at": "2026-03-23T07:28:06Z",
+  "env": {
+    "os": "Darwin",
+    "arch": "arm64",
+    "go": "go1.26.1"
+  },
+  "benchmarks": {
+    "go_engine": [
+      {
+        "name": "BenchmarkProcessSimpleRule-8",
+        "ns_op": "106.1"
+      },
+      {
+        "name": "BenchmarkProcessWindowedRule-8",
+        "ns_op": "157.1"
+      },
+      {
+        "name": "BenchmarkProcess100Rules-8",
+        "ns_op": "16580"
+      },
+      {
+        "name": "BenchmarkEngineInit-8",
+        "ns_op": "32011"
+      },
+      {
+        "name": "BenchmarkEngineReinit-8",
+        "ns_op": "32295"
+      }
+    ],
+    "alert_latency": {
+      "ding": {
+        "system": "ding",
+        "p50_ms": 4,
+        "p99_ms": 16,
+        "samples": [
+          16,
+          5,
+          4,
+          4,
+          5,
+          5,
+          4,
+          4,
+          5,
+          5,
+          4,
+          5,
+          4,
+          5,
+          5,
+          5,
+          4,
+          4,
+          5,
+          4,
+          4,
+          4,
+          5,
+          4,
+          5,
+          5,
+          5,
+          4,
+          5,
+          4,
+          5,
+          5,
+          5,
+          4,
+          4,
+          4,
+          4,
+          4,
+          5,
+          5,
+          5,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          5,
+          4,
+          5,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          5,
+          4,
+          5,
+          4,
+          5,
+          4,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4,
+          4
+        ]
+      },
+      "prometheus_default": {
+        "system": "prometheus-default",
+        "p50_ms": 62000,
+        "p99_ms": 91000,
+        "note": "theoretical minimum; actual measured via manual run with RUNS=5 to avoid long wait"
+      },
+      "prometheus_min": {
+        "system": "prometheus-min",
+        "note": "skipped (--skip-docker)"
+      }
+    },
+    "throughput": {
+      "ding_http": {
+        "rps": 116085,
+        "p99_ms": 0
+      },
+      "ding_stdin": {
+        "rps": 0,
+        "note": "pv not installed; install with brew install pv"
+      },
+      "prometheus": {
+        "rps": 78000,
+        "p99_ms": 18,
+        "note": "reference value from Prometheus remote_write benchmarks; protobuf format not measurable via hey"
+      }
+    },
+    "config_lines": {
+      "ding": {
+        "files": 1,
+        "lines": 12
+      },
+      "prometheus": {
+        "files": 3,
+        "lines": 30
+      }
+    },
+    "startup": {
+      "ding": {
+        "name": "ding",
+        "p50_ms": 9,
+        "p99_ms": 14
+      },
+      "prometheus": {
+        "name": "prometheus_cold",
+        "p50_ms": 185,
+        "p99_ms": 277
+      }
+    },
+    "memory": {
+      "note": "skipped (--skip-docker)"
+    }
+  }
+}
