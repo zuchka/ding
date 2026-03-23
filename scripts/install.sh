@@ -41,8 +41,9 @@ curl -sfL "$CHECKSUM_URL" -o "${TMP}/checksums.txt"
 
 # Verify checksum (works on Linux and macOS)
 cd "$TMP"
-grep "$FILENAME" checksums.txt | sha256sum -c - 2>/dev/null \
-  || shasum -a 256 -c <(grep "$FILENAME" checksums.txt) 2>/dev/null \
+grep "$FILENAME" checksums.txt > check.txt
+sha256sum -c check.txt 2>/dev/null \
+  || shasum -a 256 -c check.txt 2>/dev/null \
   || { echo "Checksum verification failed." && exit 1; }
 
 tar -xzf "$FILENAME"
