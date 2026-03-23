@@ -14,6 +14,10 @@ func main() {
 		port = os.Args[1]
 	}
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		// Print nanosecond timestamp immediately; run.sh tails this output.
 		fmt.Printf("%d\n", time.Now().UnixNano())
 		w.WriteHeader(http.StatusOK)
