@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=1h
+      - --web.enable-remote-write-receiver
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./rules.yaml:/etc/prometheus/rules.yaml:ro
+    ports:
+      - "9090:9090"
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+    depends_on:
+      - webhook-receiver
+
+  datadog-agent:
+    image: gcr.io/datadoghq/agent:7
+    environment:
+      - DD_API_KEY=${DD_API_KEY:-dummy-key-for-local-testing}
+      - DD_SITE=datadoghq.com
+      - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
+      - DD_LOG_LEVEL=warn
+    volumes:
+      - ./datadog-agent.yaml:/etc/datadog-agent/datadog.yaml:ro
+    ports:
+      - "8125:8125/udp"
+
+  webhook-receiver:
+    build:
+      context: ./webhook-receiver
+    ports:
+      - "9999:9999"

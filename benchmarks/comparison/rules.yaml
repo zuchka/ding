@@ -1,0 +1,7 @@
+groups:
+  - name: cpu
+    rules:
+      - alert: HighCPU
+        expr: avg_over_time(cpu_usage[5m]) > 80
+        annotations:
+          summary: "CPU high: {{ $value }}"
