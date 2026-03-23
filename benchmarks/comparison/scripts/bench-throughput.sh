@@ -27,7 +27,7 @@ run_hey() {
   rps=$(echo "$out" | grep 'Requests/sec:' | awk '{printf "%d", $2}')
   p99=$(echo "$out" | grep '99%' | awk '{printf "%d", $2 * 1000}')  # hey reports seconds
 
-  echo "{\"name\":\"$name\",\"rps\":$rps,\"p99_ms\":$p99}"
+  echo "{\"rps\":$rps,\"p99_ms\":$p99}"
 }
 
 ding=$(run_hey "ding_http" \
@@ -50,8 +50,10 @@ if command -v pv > /dev/null; then
     pv -s "$TOTAL_BYTES" -n -b 2>&1 | \
     awk 'END{print $1}')
   ding_stdin_rps=$(( bytes_per_sec / EVENT_BYTES ))
+  ding_stdin='{"rps":'"$ding_stdin_rps"'}'
+else
+  ding_stdin='{"rps":0,"note":"pv not installed; install with brew install pv"}'
 fi
-ding_stdin='{"rps":'"$ding_stdin_rps"',"note":"pv-measured; 0 if pv not installed"}'
 
 # Prometheus remote_write uses snappy-compressed protobuf which `hey` cannot
 # generate. The spec's Prometheus throughput number (78,000 rps) is derived from
