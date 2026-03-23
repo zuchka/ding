@@ -1,0 +1,9 @@
+FROM scratch
+LABEL org.opencontainers.image.title="ding"
+LABEL org.opencontainers.image.description="Stream-based alerting daemon"
+LABEL org.opencontainers.image.source="https://github.com/zuchka/ding"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.url="https://ding.ing"
+COPY ding /ding
+EXPOSE 8080
+ENTRYPOINT ["/ding", "serve", "--config", "/etc/ding/ding.yaml"]
