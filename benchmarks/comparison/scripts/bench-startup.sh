@@ -48,7 +48,7 @@ time_to_healthy() {
     eval "$stop_cmd $pid" 2>/dev/null || true
     # Wait for the port to be released before the next run
     local attempts=0
-    while lsof -ti :8083 > /dev/null 2>&1 && (( attempts < 50 )); do
+    while nc -z 127.0.0.1 8083 2>/dev/null && (( attempts < 50 )); do
       sleep 0.1
       attempts=$(( attempts + 1 ))
     done

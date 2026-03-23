@@ -1,4 +1,4 @@
-# super-ding v2: Address Known v1 Gaps — Design Spec
+# zuchka v2: Address Known v1 Gaps — Design Spec
 
 **Date:** 2026-03-22
 **Status:** Approved
@@ -7,7 +7,7 @@
 
 ## Problem
 
-super-ding v1 shipped with four intentional limitations:
+zuchka v1 shipped with four intentional limitations:
 
 1. **No HTTP server timeouts** — `http.Server` has no `ReadTimeout`/`WriteTimeout`/`IdleTimeout`. A slow or hung client can hold a connection open indefinitely, threatening availability if the server is exposed publicly.
 2. **No request body size limit on `/ingest`** — `io.ReadAll(r.Body)` with no bound means a sufficiently large POST can exhaust memory.

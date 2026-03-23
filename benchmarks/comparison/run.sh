@@ -48,7 +48,7 @@ fi
 # ── 3. Start local webhook receiver for Ding latency test ─────────────────
 WH_LOG=$(mktemp /tmp/wh-XXXXXX.log)
 # Clear any stale process on port 9998 from a previous interrupted run
-lsof -ti :9998 | xargs kill -9 2>/dev/null || true
+kill -9 $(lsof -ti tcp:9998 2>/dev/null) 2>/dev/null || true
 sleep 0.2
 /tmp/bench-webhook-receiver 9998 > "$WH_LOG" &
 WH_PID=$!

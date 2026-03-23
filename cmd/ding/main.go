@@ -14,8 +14,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/super-ding/ding/internal/evaluator"
-	"github.com/super-ding/ding/internal/server"
+	"github.com/zuchka/ding/internal/evaluator"
+	"github.com/zuchka/ding/internal/server"
 )
 
 var version = "dev"

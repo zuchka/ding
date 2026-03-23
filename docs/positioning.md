@@ -195,8 +195,8 @@ Honesty is a feature of good positioning. DING is not trying to replace the obse
 DING is open source (MIT). The distribution strategy prioritizes developer trust and adoption speed:
 
 - **GitHub Releases** — Pre-built binaries for all platforms. `curl`, extract, run.
-- **Homebrew** — `brew install super-ding/tap/ding`. The standard developer install path on macOS.
-- **Docker** — `docker run -v ./ding.yaml:/etc/ding/ding.yaml ghcr.io/super-ding/ding`. A 5MB scratch-based image.
+- **Homebrew** — `brew install zuchka/tap/ding`. The standard developer install path on macOS.
+- **Docker** — `docker run -v ./ding.yaml:/etc/ding/ding.yaml ghcr.io/zuchka/ding`. A 5MB scratch-based image.
 - **Install script** — `curl -sf https://install.ding.sh | sh`. The one-liner that works everywhere.
 
 No account required. No telemetry. No license key. No phone-home. The binary works immediately, on your hardware, without asking permission.
@@ -213,4 +213,4 @@ DING is the tool that fills that gap — the missing Unix utility for alerting.
 
 ---
 
-*DING is open source under the MIT license. Contributions welcome at github.com/super-ding/ding.*
+*DING is open source under the MIT license. Contributions welcome at github.com/zuchka/ding.*
