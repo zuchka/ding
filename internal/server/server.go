@@ -51,7 +51,8 @@ func (s *Server) SwapEngine(eng *evaluator.Engine, cfg *config.Config, notifiers
 	s.notifiers = notifiers
 	s.mu.Unlock()
 
-	// Stop old notifier goroutines outside the lock.
+	// Stop old notifier goroutines outside the lock. At shutdown, the caller is responsible
+	// for stopping the current (latest) notifiers independently.
 	for _, n := range oldNotifiers {
 		if stopper, ok := n.(interface{ Stop() }); ok {
 			stopper.Stop()

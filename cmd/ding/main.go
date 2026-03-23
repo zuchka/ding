@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -76,6 +77,10 @@ func runServe(configPath string) error {
 
 	srv := server.New(eng, notifiers, cfg, configPath)
 
+	// reloadMu serializes concurrent reloads from both the SIGHUP goroutine
+	// and the /reload HTTP endpoint (via the reload hook closure below).
+	var reloadMu sync.Mutex
+
 	// Persistence: restore state and start periodic flusher.
 	stopFlusher := func() {} // no-op until flusher is started
 	if cfg.Persistence.StateFile != "" {
@@ -91,6 +96,9 @@ func runServe(configPath string) error {
 
 	// Set up the reload hook so /reload endpoint also transfers state.
 	srv.SetReloadHook(func() error {
+		reloadMu.Lock()
+		defer reloadMu.Unlock()
+
 		// Flush old engine state to disk.
 		stopFlusher()
 		stopFlusher = func() {}
@@ -151,6 +159,7 @@ func runServe(configPath string) error {
 	go func() {
 		for range sighup {
 			log.Println("ding: received SIGHUP, reloading config...")
+			reloadMu.Lock()
 
 			// 1a. Flush old engine state to disk.
 			stopFlusher()
@@ -164,6 +173,7 @@ func runServe(configPath string) error {
 				if cfg.Persistence.StateFile != "" {
 					stopFlusher = eng.StartFlusher(cfg.Persistence.StateFile, cfg.Persistence.FlushInterval.Duration)
 				}
+				reloadMu.Unlock()
 				continue
 			}
 
@@ -187,6 +197,7 @@ func runServe(configPath string) error {
 			if newCfg.Persistence.StateFile != "" {
 				stopFlusher = newEng.StartFlusher(newCfg.Persistence.StateFile, newCfg.Persistence.FlushInterval.Duration)
 			}
+			reloadMu.Unlock()
 		}
 	}()
 
@@ -209,7 +220,9 @@ func runServe(configPath string) error {
 		log.Printf("ding: shutdown error: %v", err)
 	}
 
-	// Stop webhook goroutines, then do final state flush.
+	// Stop current notifiers. Note: SwapEngine stops the OLD notifiers during hot-reload;
+	// this stops the CURRENT (latest) notifiers at shutdown. These are different instances
+	// after any reload has occurred, so there is no double-stop.
 	for _, n := range notifiers {
 		if stopper, ok := n.(interface{ Stop() }); ok {
 			stopper.Stop()
