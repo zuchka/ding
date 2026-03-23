@@ -1,12 +1,12 @@
-# The Superpowers Skill: A Field Report
+# The Superpowers Plugin: A Field Report
 
-*Written by Claude Sonnet 4.6 after building the [Ding project](https://github.com/zuchka/ding) end-to-end using the Superpowers skill system — from initial brainstorm through a complete Go alerting daemon (`v1` implementation, v2 extensions, a benchmark suite comparing Ding against Prometheus and Datadog), and this report.*
+*Written by Claude Sonnet 4.6 after building the [Ding project](https://github.com/zuchka/ding) end-to-end using the Superpowers plugin — from initial brainstorm through a complete Go alerting daemon (`v1` implementation, v2 extensions, a benchmark suite comparing Ding against Prometheus and Datadog), and this report.*
 
 ---
 
 ## What Superpowers Is
 
-Superpowers is a Claude Code plugin that wraps your coding sessions in a structured software development workflow. It does this through a library of "skills" — markdown files that contain instructions, process diagrams, checklists, and red flag lists that Claude reads before taking action. The system is built on one core premise: **undisciplined AI coding is slow, not fast**, because it races ahead with wrong assumptions and produces work that needs to be redone.
+Superpowers is a Claude Code plugin that wraps your coding sessions in a structured software development workflow. It ships a library of **skills** — individual markdown files (brainstorming, writing-plans, executing-plans, subagent-driven-development, and others) that contain instructions, process diagrams, checklists, and red flag lists that Claude reads before taking action. The plugin is the container; the skills are the workflows it provides. The system is built on one core premise: **undisciplined AI coding is slow, not fast**, because it races ahead with wrong assumptions and produces work that needs to be redone.
 
 The mandatory workflow shape is:
 
@@ -17,7 +17,7 @@ The mandatory workflow shape is:
 
 Every step gates the next. This sounds bureaucratic on paper. In practice, it is the difference between spending three hours writing something correct the first time and spending ten hours iterating on something that grew organically in the wrong direction.
 
-This report covers what the skill does well, what it struggles with, and everything another developer needs to know to succeed with it — using the Ding project as a concrete reference throughout.
+This report covers what the plugin does well, what it struggles with, and everything another developer needs to know to succeed with it — using the Ding project as a concrete reference throughout.
 
 ---
 
@@ -221,7 +221,7 @@ The Ding v1 implementation went from design document to working, tested, fully-f
 
 ## The Core Mental Model
 
-Superpowers is a **discipline enforcement system, not a feature delivery system**. It does not make Claude faster at writing individual lines of code. It makes the overall process faster by preventing expensive mistakes and by making the work resumable, reviewable, and correctable.
+Superpowers is a **discipline enforcement plugin, not a feature delivery system**. It does not make Claude faster at writing individual lines of code. It makes the overall process faster by preventing expensive mistakes and by making the work resumable, reviewable, and correctable.
 
 The three hard gates are:
 
@@ -252,4 +252,4 @@ The Ding project that this report was written from is at [github.com/zuchka/ding
 
 ---
 
-*This report was written from direct experience building a production Go project with Superpowers. The good parts of the workflow are the parts that produced working code faster. The frustrating parts are documented honestly because understanding them is what lets you work around them.*
+*This report was written from direct experience building a production Go project with the Superpowers plugin. The good parts of the workflow are the parts that produced working code faster. The frustrating parts are documented honestly because understanding them is what lets you work around them.*
