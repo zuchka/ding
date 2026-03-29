@@ -152,6 +152,9 @@ func buildFromConfig(path string, collector *metrics.Collector) (*evaluator.Engi
 		var jqErr error
 		jqCode, jqErr = ingester.CompileJQ(cfg.Server.JQ)
 		if jqErr != nil {
+			if alertLogger != nil {
+				alertLogger.Close()
+			}
 			for _, n := range notifiers {
 				if stopper, ok := n.(interface{ Stop() }); ok {
 					stopper.Stop()
