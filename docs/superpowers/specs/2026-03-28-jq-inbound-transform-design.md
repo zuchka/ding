@@ -45,7 +45,7 @@ server:
 
 If `jq` is absent, behavior is identical to today. No performance cost.
 
-**Interaction with `format`:** When `jq` is configured, the `format` field is ignored for inbound parsing — JQ output always feeds into `ParseJSONLine`. The `format` field remains valid in config and is not an error, but has no effect on the transform path.
+**Interaction with `format`:** When `jq` is configured, the `format` field is ignored for inbound parsing — JQ output always feeds into `ParseJSONLine`. The `format` field remains valid in config and is not an error (`config.Validate()` still accepts all three values), but has no effect on the transform path. Setting `format: prometheus` alongside `jq` is silently ignored — no mutual-exclusion check or warning is added.
 
 ---
 
@@ -57,7 +57,7 @@ Add `JQ string \`yaml:"jq"\`` to `ServerConfig`. No JQ compilation here — the 
 ### `internal/ingester/jq.go` (new file)
 Owns the JQ concern:
 - `CompileJQ(expr string) (*gojq.Code, error)` — compiles at startup
-- `RunJQ(code *gojq.Code, rawBytes []byte) ([]Event, error)` — runs the program against raw bytes, handles single-object and array output, delegates each result object to `ParseJSONLine`. Returns an error if JQ produces null, an empty array, or a non-object value (bare string, number, etc.) — distinguishing this "shape error" from a JQ runtime error with a clear message like `"jq produced unexpected output type: string"`.
+- `RunJQ(code *gojq.Code, rawBytes []byte) ([]Event, error)` — runs the program against raw bytes, then drains the `gojq` iterator by calling `iter.Next()` in a loop until `(nil, false)` is returned. Each yielded value is treated as one candidate Event object. Errors yielded by the iterator are returned immediately. Returns an error if no values are yielded (null produces a `nil` value from the iterator, detected as `v == nil`), or if a yielded value is a non-object type (bare string, number, etc.) — distinguishing this "shape error" from a JQ runtime error with a clear message like `"jq produced unexpected output type: string"`. Object values are passed to `ParseJSONLine` one at a time.
 
 ### `internal/server/server.go`
 - Add `jqCode *gojq.Code` field to `Server` struct (nil when no JQ configured)
@@ -79,14 +79,24 @@ if cfg.Server.JQ != "" {
     }
 }
 ```
-Update return signature to include `*gojq.Code`:
+Updated internal signature:
 ```go
 func buildFromConfig(path string, collector *metrics.Collector) (*evaluator.Engine, *config.Config, map[string]notifier.Notifier, *notifier.AlertLogger, *gojq.Code, error)
 ```
-`BuildFromConfig` (exported) is updated to match. All callers in `main.go` and `runValidate` receive the compiled code and pass it to `New` or `SwapEngine`.
+Updated exported wrapper to match:
+```go
+func BuildFromConfig(path string, collector *metrics.Collector) (*evaluator.Engine, *config.Config, map[string]notifier.Notifier, *notifier.AlertLogger, *gojq.Code, error) {
+    return buildFromConfig(path, collector)
+}
+```
+
+`config.Validate()` requires no changes — the `JQ` field is an optional string, no validation logic needed there.
 
 ### `cmd/ding/main.go`
-All four call sites of `BuildFromConfig` / `buildFromConfig` are updated to receive `*gojq.Code` and thread it through `server.New` and `srv.SwapEngine`. No logic changes — mechanical wiring only.
+All **four** external call sites of `BuildFromConfig` are updated to receive `*gojq.Code` and thread it through `server.New` and `srv.SwapEngine`. No logic changes — mechanical wiring only.
+
+### `internal/server/handlers.go` — `handleReload` inline path
+`handleReload` contains a **fifth call site** — an inline reload path used when no hook is registered (lines 127–135). This path calls `buildFromConfig` directly and then calls `s.SwapEngine(...)`. Both calls must be updated to pass `*gojq.Code` once the signatures change, or it will not compile.
 
 ### New dependency
 `github.com/itchyny/gojq` — pure-Go JQ implementation, no CGO.
@@ -135,4 +145,5 @@ Since JQ compilation happens inside `buildFromConfig`, hot-reload via SIGHUP or 
 
 ### `internal/server/server_test.go`
 - Integration test: construct server with compiled JQ via `ingester.CompileJQ` + `server.New(..., jqCode)`. POST a payload that requires JQ to extract fields → event processed, alert fires.
-- Hot-reload test: verify `SwapEngine` with a new `*gojq.Code` takes effect on subsequent requests.
+- Hot-reload test via `SwapEngine`: verify a new `*gojq.Code` passed to `SwapEngine` takes effect on subsequent requests.
+- Inline reload path test: verify `POST /reload` with no hook registered (default inline path in `handleReload`) correctly recompiles and applies the JQ expression from the new config.
