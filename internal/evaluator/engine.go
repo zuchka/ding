@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -60,18 +61,18 @@ type Engine struct {
 
 type parsedRule struct {
 	EngineRule
-	cond Condition
+	expr ConditionExpr
 }
 
 // NewEngine creates an Engine from a slice of EngineRules.
 func NewEngine(rules []EngineRule, maxBufferSize int) (*Engine, error) {
 	parsed := make([]parsedRule, len(rules))
 	for i, r := range rules {
-		c, err := ParseCondition(r.Condition)
+		expr, err := ParseConditionExpr(r.Condition)
 		if err != nil {
 			return nil, fmt.Errorf("rule %q: %w", r.Name, err)
 		}
-		parsed[i] = parsedRule{EngineRule: r, cond: c}
+		parsed[i] = parsedRule{EngineRule: r, expr: expr}
 	}
 	return &Engine{
 		rules:         parsed,
@@ -95,33 +96,42 @@ func (e *Engine) Process(event ingester.Event, now time.Time) []Alert {
 		}
 
 		labelKey := LabelSetKey(event.Labels)
-		bufKey := rule.Name + ":" + labelKey
 
 		// Track seen label keys for /rules endpoint (before condition check)
 		e.trackLabelKey(rule.Name, labelKey)
 
-		var aggregates map[string]float64
-		if rule.cond.Windowed {
-			buf := e.getOrCreateBuffer(bufKey, rule.cond.Window)
+		// Unconditional pre-pass: populate all windowed ring buffers before evaluation.
+		// Buffers must receive every event regardless of short-circuit outcome so that
+		// aggregates remain accurate when conditions later become true.
+		leaves := rule.expr.collectWindowedLeaves()
+		ctx := evalContext{
+			Value:      event.Value,
+			Aggregates: make(map[int]float64, len(leaves)),
+			Available:  make(map[int]bool, len(leaves)),
+		}
+		for _, leaf := range leaves {
+			leafBufKey := rule.Name + ":" + strconv.Itoa(leaf.ID) + ":" + labelKey
+			buf := e.getOrCreateBuffer(leafBufKey, leaf.Window)
 			buf.Add(event.Value, event.At)
-			if !buf.HasEntries(now) {
-				continue
+			if buf.HasEntries(now) {
+				ctx.Available[leaf.ID] = true
+				switch leaf.Func {
+				case "avg":
+					ctx.Aggregates[leaf.ID] = buf.Avg(now)
+				case "max":
+					ctx.Aggregates[leaf.ID] = buf.Max(now)
+				case "min":
+					ctx.Aggregates[leaf.ID] = buf.Min(now)
+				case "sum":
+					ctx.Aggregates[leaf.ID] = buf.Sum(now)
+				case "count":
+					ctx.Aggregates[leaf.ID] = buf.Count(now)
+				}
 			}
-			aggregates = map[string]float64{
-				"avg":   buf.Avg(now),
-				"max":   buf.Max(now),
-				"min":   buf.Min(now),
-				"count": buf.Count(now),
-				"sum":   buf.Sum(now),
-			}
-			agg := aggregates[rule.cond.Func]
-			if !applyOp(agg, rule.cond.Op, rule.cond.Literal) {
-				continue
-			}
-		} else {
-			if !applyOp(event.Value, rule.cond.Op, rule.cond.Literal) {
-				continue
-			}
+		}
+
+		if !rule.expr.eval(ctx) {
+			continue
 		}
 
 		if e.cooldown.IsActive(rule.Name, labelKey) {
@@ -139,12 +149,17 @@ func (e *Engine) Process(event ingester.Event, now time.Time) []Alert {
 			FiredAt:   now,
 			Notifiers: rule.Alerts,
 		}
-		if aggregates != nil {
-			alert.Avg = aggregates["avg"]
-			alert.Max = aggregates["max"]
-			alert.Min = aggregates["min"]
-			alert.Count = aggregates["count"]
-			alert.Sum = aggregates["sum"]
+		// Populate flat aggregate fields for backward compat.
+		// Only for single-windowed-leaf rules; compound multi-leaf rules leave these zero.
+		if len(leaves) == 1 {
+			leaf := leaves[0]
+			leafBufKey := rule.Name + ":" + strconv.Itoa(leaf.ID) + ":" + labelKey
+			buf := e.getOrCreateBuffer(leafBufKey, leaf.Window)
+			alert.Avg = buf.Avg(now)
+			alert.Max = buf.Max(now)
+			alert.Min = buf.Min(now)
+			alert.Count = buf.Count(now)
+			alert.Sum = buf.Sum(now)
 		}
 		alert.Message = renderMessage(rule.Message, alert)
 		alerts = append(alerts, alert)

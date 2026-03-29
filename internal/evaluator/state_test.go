@@ -85,8 +85,8 @@ func TestSnapshotEngine_CapturesBuffers(t *testing.T) {
 		t.Fatal("expected at least one buffer in snapshot")
 	}
 
-	// The key should be "cpu_sustained:host=web-01"
-	expectedKey := "cpu_sustained:host=web-01"
+	// The key should be "cpu_sustained:0:host=web-01"
+	expectedKey := "cpu_sustained:0:host=web-01"
 	bs, ok := snap.Buffers[expectedKey]
 	if !ok {
 		t.Fatalf("expected buffer key %q in snapshot, got keys: %v", expectedKey, keysOf(snap.Buffers))
@@ -213,7 +213,7 @@ func TestRestoreEngine_PreservesActiveState(t *testing.T) {
 	// eng2 should have the same buffers as eng1
 	snap2 := evaluator.SnapshotEngine(eng2)
 
-	key := "cpu_sustained:host=web-01"
+	key := "cpu_sustained:0:host=web-01"
 	bs1, ok1 := snap.Buffers[key]
 	bs2, ok2 := snap2.Buffers[key]
 	if !ok1 || !ok2 {
