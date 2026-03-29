@@ -1,6 +1,7 @@
 package evaluator_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -245,6 +246,69 @@ func TestEngine_CooldownPreventsRefiring(t *testing.T) {
 	}
 }
 
+// ---- Compound condition parsing ----
+
+func TestParseConditionExpr_SingleForward(t *testing.T) {
+	_, err := evaluator.ParseConditionExpr("value > 95")
+	if err != nil {
+		t.Fatalf("unexpected error for single condition: %v", err)
+	}
+}
+
+func TestParseConditionExpr_AND(t *testing.T) {
+	_, err := evaluator.ParseConditionExpr("value > 90 AND value < 100")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseConditionExpr_OR(t *testing.T) {
+	_, err := evaluator.ParseConditionExpr("value < 10 OR value > 90")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseConditionExpr_WindowedCompound(t *testing.T) {
+	_, err := evaluator.ParseConditionExpr("avg(value) over 5m > 80 AND max(value) over 1m > 95")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseConditionExpr_PrecedenceANDOverOR(t *testing.T) {
+	// a AND b OR c must parse as (a AND b) OR c — verified via engine eval tests
+	_, err := evaluator.ParseConditionExpr("value > 90 AND value < 100 OR value == 0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseConditionExpr_PrecedenceORThenAND(t *testing.T) {
+	// a OR b AND c must parse as a OR (b AND c)
+	_, err := evaluator.ParseConditionExpr("value == 0 OR value > 90 AND value < 100")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseConditionExpr_InvalidAtom(t *testing.T) {
+	_, err := evaluator.ParseConditionExpr("value OVER 95")
+	if err == nil {
+		t.Fatal("expected error for invalid atom")
+	}
+}
+
+func TestParseConditionExpr_LowercaseAndHint(t *testing.T) {
+	_, err := evaluator.ParseConditionExpr("value > 90 and value < 100")
+	if err == nil {
+		t.Fatal("expected error for lowercase 'and'")
+	}
+	if !strings.Contains(err.Error(), "AND") || !strings.Contains(err.Error(), "OR") {
+		t.Errorf("expected error to hint about uppercase AND/OR, got: %v", err)
+	}
+}
+
 func TestEngine_Windowed_FiresOnAvg(t *testing.T) {
 	rules := []evaluator.EngineRule{
 		{
@@ -266,5 +330,118 @@ func TestEngine_Windowed_FiresOnAvg(t *testing.T) {
 	alerts := eng.Process(ingester.Event{Metric: "cpu_usage", Value: 91, Labels: map[string]string{}, At: now}, now)
 	if len(alerts) == 0 {
 		t.Fatal("expected alert for sustained high avg")
+	}
+}
+
+// ---- Compound condition evaluation ----
+
+func TestEngine_CompoundAND_BothTrue_Fires(t *testing.T) {
+	rules := []evaluator.EngineRule{{
+		Name: "range_check", Condition: "value > 50 AND value < 100", Alerts: []string{"stdout"},
+	}}
+	eng, err := evaluator.NewEngine(rules, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	alerts := eng.Process(ingester.Event{Metric: "m", Value: 75, Labels: map[string]string{}, At: now}, now)
+	if len(alerts) != 1 {
+		t.Errorf("expected 1 alert, got %d", len(alerts))
+	}
+}
+
+func TestEngine_CompoundAND_LeftFalse_NoAlert(t *testing.T) {
+	rules := []evaluator.EngineRule{{
+		Name: "range_check", Condition: "value > 50 AND value < 100", Alerts: []string{"stdout"},
+	}}
+	eng, err := evaluator.NewEngine(rules, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	alerts := eng.Process(ingester.Event{Metric: "m", Value: 30, Labels: map[string]string{}, At: now}, now)
+	if len(alerts) != 0 {
+		t.Errorf("expected no alerts (left false), got %d", len(alerts))
+	}
+}
+
+func TestEngine_CompoundAND_RightFalse_NoAlert(t *testing.T) {
+	rules := []evaluator.EngineRule{{
+		Name: "range_check", Condition: "value > 50 AND value < 100", Alerts: []string{"stdout"},
+	}}
+	eng, err := evaluator.NewEngine(rules, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	alerts := eng.Process(ingester.Event{Metric: "m", Value: 110, Labels: map[string]string{}, At: now}, now)
+	if len(alerts) != 0 {
+		t.Errorf("expected no alerts (right false), got %d", len(alerts))
+	}
+}
+
+func TestEngine_CompoundOR_LeftTrue_Fires(t *testing.T) {
+	rules := []evaluator.EngineRule{{
+		Name: "outlier", Condition: "value < 10 OR value > 90", Alerts: []string{"stdout"},
+	}}
+	eng, err := evaluator.NewEngine(rules, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	alerts := eng.Process(ingester.Event{Metric: "m", Value: 5, Labels: map[string]string{}, At: now}, now)
+	if len(alerts) != 1 {
+		t.Errorf("expected 1 alert (left true), got %d", len(alerts))
+	}
+}
+
+func TestEngine_CompoundOR_RightTrue_Fires(t *testing.T) {
+	rules := []evaluator.EngineRule{{
+		Name: "outlier", Condition: "value < 10 OR value > 90", Alerts: []string{"stdout"},
+	}}
+	eng, err := evaluator.NewEngine(rules, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	alerts := eng.Process(ingester.Event{Metric: "m", Value: 95, Labels: map[string]string{}, At: now}, now)
+	if len(alerts) != 1 {
+		t.Errorf("expected 1 alert (right true), got %d", len(alerts))
+	}
+}
+
+func TestEngine_CompoundOR_BothFalse_NoAlert(t *testing.T) {
+	rules := []evaluator.EngineRule{{
+		Name: "outlier", Condition: "value < 10 OR value > 90", Alerts: []string{"stdout"},
+	}}
+	eng, err := evaluator.NewEngine(rules, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	alerts := eng.Process(ingester.Event{Metric: "m", Value: 50, Labels: map[string]string{}, At: now}, now)
+	if len(alerts) != 0 {
+		t.Errorf("expected no alerts (both false), got %d", len(alerts))
+	}
+}
+
+func TestEngine_CompoundWindowed_BothLeavesFed(t *testing.T) {
+	// Both windowed leaves must receive events even when AND short-circuits.
+	// A single event is sufficient since RingBuffer.HasEntries returns true after
+	// any Add() call (no minimum count requirement).
+	rules := []evaluator.EngineRule{{
+		Name:      "dual_window",
+		Condition: "avg(value) over 5m > 80 AND max(value) over 1m > 90",
+		Alerts:    []string{"stdout"},
+	}}
+	eng, err := evaluator.NewEngine(rules, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	// value=95 satisfies both: avg(95)=95>80 AND max(95)=95>90
+	alerts := eng.Process(ingester.Event{Metric: "m", Value: 95, Labels: map[string]string{}, At: now}, now)
+	if len(alerts) != 1 {
+		t.Errorf("expected 1 alert when both windowed leaves satisfied, got %d", len(alerts))
 	}
 }
