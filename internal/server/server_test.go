@@ -484,3 +484,43 @@ rules:
 		t.Fatalf("post-reload: expected 200, got %d: %s", w2.Code, w2.Body.String())
 	}
 }
+
+func TestSwapEngine_UpdatesJQ(t *testing.T) {
+	// Start with JQ that maps .name/.v to metric/value
+	srv := makeServerWithJQ(t, `{metric: .name, value: .v}`)
+
+	// JQ format works before swap
+	req1 := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewBufferString(`{"name":"cpu_usage","v":97}`))
+	w1 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w1, req1)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("pre-swap: expected 200, got %d: %s", w1.Code, w1.Body.String())
+	}
+
+	// Swap to a server with no JQ (nil jqCode)
+	rules := []evaluator.EngineRule{
+		{
+			Name:      "cpu_spike",
+			Match:     map[string]string{"metric": "cpu_usage"},
+			Condition: "value > 90",
+			Alerts:    []string{"stdout"},
+		},
+	}
+	newEng, err := evaluator.NewEngine(rules, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newNotifiers := map[string]notifier.Notifier{
+		"stdout": notifier.NewStdoutNotifier(bytes.NewBuffer(nil)),
+	}
+	newCfg := &config.Config{Server: config.ServerConfig{Format: "json", MaxBodyBytes: 1 << 20}}
+	srv.SwapEngine(newEng, newCfg, newNotifiers, nil, nil)
+
+	// After swap: standard format works, JQ format no longer applies
+	req2 := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewBufferString(`{"metric":"cpu_usage","value":97}`))
+	w2 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("post-swap: expected 200 for standard format, got %d: %s", w2.Code, w2.Body.String())
+	}
+}

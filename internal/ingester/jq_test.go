@@ -131,3 +131,16 @@ func TestRunJQ_InvalidInputJSON(t *testing.T) {
 		t.Fatal("expected error for invalid JSON input, got nil")
 	}
 }
+
+func TestRunJQ_RuntimeError(t *testing.T) {
+	// .foo.bar on {"foo": 42} causes a JQ runtime type error
+	// because .foo returns a number, and you can't index a number with .bar
+	code, _ := ingester.CompileJQ(`.foo.bar`)
+	_, err := ingester.RunJQ(code, []byte(`{"foo": 42}`))
+	if err == nil {
+		t.Fatal("expected error for JQ runtime type error, got nil")
+	}
+	if !strings.Contains(err.Error(), "jq runtime error") {
+		t.Errorf("expected 'jq runtime error' in message, got: %v", err)
+	}
+}
