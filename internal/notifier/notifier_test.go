@@ -57,7 +57,7 @@ func TestWebhookNotifier_PostsJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := notifier.NewWebhookNotifier(srv.URL, 3, 1*time.Millisecond)
+	n := notifier.NewWebhookNotifier(srv.URL, 3, 1*time.Millisecond, nil)
 	defer n.Stop()
 	if err := n.Send(makeAlert()); err != nil {
 		t.Fatal(err)
@@ -78,7 +78,7 @@ func TestWebhookNotifier_PostsJSON(t *testing.T) {
 }
 
 func TestWebhookNotifier_FailsSilently(t *testing.T) {
-	n := notifier.NewWebhookNotifier("http://127.0.0.1:1", 3, 1*time.Millisecond) // nothing listening
+	n := notifier.NewWebhookNotifier("http://127.0.0.1:1", 3, 1*time.Millisecond, nil) // nothing listening
 	defer n.Stop()
 	// Should not return an error — failure is logged and dropped
 	if err := n.Send(makeAlert()); err != nil {
@@ -92,7 +92,7 @@ func TestWebhookNotifier_FailsSilentlyOn4xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := notifier.NewWebhookNotifier(srv.URL, 3, 1*time.Millisecond)
+	n := notifier.NewWebhookNotifier(srv.URL, 3, 1*time.Millisecond, nil)
 	defer n.Stop()
 	if err := n.Send(makeAlert()); err != nil {
 		t.Errorf("expected silent failure on 4xx, got error: %v", err)
@@ -116,7 +116,7 @@ func TestWebhookNotifier_RetriesOnServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := notifier.NewWebhookNotifier(srv.URL, 5, 1*time.Millisecond)
+	n := notifier.NewWebhookNotifier(srv.URL, 5, 1*time.Millisecond, nil)
 	defer n.Stop()
 
 	if err := n.Send(makeAlert()); err != nil {
@@ -149,7 +149,7 @@ func TestWebhookNotifier_NoRetryOn4xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := notifier.NewWebhookNotifier(srv.URL, 3, 1*time.Millisecond)
+	n := notifier.NewWebhookNotifier(srv.URL, 3, 1*time.Millisecond, nil)
 	defer n.Stop()
 
 	if err := n.Send(makeAlert()); err != nil {
@@ -188,7 +188,7 @@ func TestWebhookNotifier_DropsAfterMaxAttempts(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n := notifier.NewWebhookNotifier(srv.URL, 2, 1*time.Millisecond)
+	n := notifier.NewWebhookNotifier(srv.URL, 2, 1*time.Millisecond, nil)
 	defer n.Stop()
 
 	if err := n.Send(makeAlert()); err != nil {
@@ -213,7 +213,7 @@ func TestWebhookNotifier_DropsAfterMaxAttempts(t *testing.T) {
 // Assert Send always returns nil and doesn't block.
 func TestWebhookNotifier_QueueFull_DropsSilently(t *testing.T) {
 	// Create a notifier and immediately stop the worker so the queue won't drain.
-	n := notifier.NewWebhookNotifier("http://127.0.0.1:1", 3, 1*time.Millisecond)
+	n := notifier.NewWebhookNotifier("http://127.0.0.1:1", 3, 1*time.Millisecond, nil)
 	n.Stop()
 
 	// Give the worker goroutine time to actually exit.
@@ -258,7 +258,7 @@ func TestWebhookNotifier_WorkerExitsOnStop(t *testing.T) {
 		srv.Close()
 	}()
 
-	n := notifier.NewWebhookNotifier(srv.URL, 3, 1*time.Millisecond)
+	n := notifier.NewWebhookNotifier(srv.URL, 3, 1*time.Millisecond, nil)
 
 	if err := n.Send(makeAlert()); err != nil {
 		t.Fatal(err)

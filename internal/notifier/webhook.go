@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/zuchka/ding/internal/evaluator"
+	"github.com/zuchka/ding/internal/metrics"
 )
 
 type retryItem struct {
@@ -32,10 +33,12 @@ type WebhookNotifier struct {
 	queue          chan retryItem
 	stop           chan struct{}
 	stopOnce       sync.Once
+	collector      *metrics.Collector // may be nil
 }
 
 // NewWebhookNotifier creates and starts a WebhookNotifier.
-func NewWebhookNotifier(url string, maxAttempts int, initialBackoff time.Duration) *WebhookNotifier {
+// collector may be nil — all instrumentation points guard against nil.
+func NewWebhookNotifier(url string, maxAttempts int, initialBackoff time.Duration, collector *metrics.Collector) *WebhookNotifier {
 	n := &WebhookNotifier{
 		url:            url,
 		client:         &http.Client{Timeout: 10 * time.Second},
@@ -43,6 +46,7 @@ func NewWebhookNotifier(url string, maxAttempts int, initialBackoff time.Duratio
 		initialBackoff: initialBackoff,
 		queue:          make(chan retryItem, 256),
 		stop:           make(chan struct{}),
+		collector:      collector,
 	}
 	go n.worker()
 	return n
@@ -67,6 +71,9 @@ func (n *WebhookNotifier) Send(alert evaluator.Alert) error {
 	case n.queue <- item:
 	default:
 		log.Printf("ding: webhook queue full for rule %q, dropping alert", alert.Rule)
+		if n.collector != nil {
+			n.collector.IncrWebhookDrop()
+		}
 	}
 	return nil
 }
@@ -75,6 +82,10 @@ func (n *WebhookNotifier) Send(alert evaluator.Alert) error {
 func (n *WebhookNotifier) Stop() {
 	n.stopOnce.Do(func() { close(n.stop) })
 }
+
+// QueueDepth returns the current number of items waiting in the retry queue.
+// len() on a buffered channel is safe to call concurrently.
+func (n *WebhookNotifier) QueueDepth() int { return len(n.queue) }
 
 func (n *WebhookNotifier) worker() {
 	for {
@@ -99,6 +110,9 @@ func (n *WebhookNotifier) worker() {
 				item.attempt++
 				if item.attempt >= n.maxAttempts {
 					log.Printf("ding: webhook dropped after %d attempts for rule %q: %v", n.maxAttempts, item.rule, err)
+					if n.collector != nil {
+						n.collector.IncrWebhookFailed()
+					}
 					continue
 				}
 				// Backoff: initialBackoff * 2^(attempt-1)
@@ -109,6 +123,13 @@ func (n *WebhookNotifier) worker() {
 				case n.queue <- item:
 				default:
 					log.Printf("ding: webhook queue full during retry for rule %q, dropping", item.rule)
+					if n.collector != nil {
+						n.collector.IncrWebhookDrop()
+					}
+				}
+			} else {
+				if n.collector != nil {
+					n.collector.IncrWebhookSuccess()
 				}
 			}
 		}

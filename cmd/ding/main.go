@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/zuchka/ding/internal/evaluator"
+	"github.com/zuchka/ding/internal/metrics"
 	"github.com/zuchka/ding/internal/server"
 )
 
@@ -61,7 +62,8 @@ func main() {
 }
 
 func runValidate(configPath string) error {
-	_, _, _, err := server.BuildFromConfig(configPath)
+	// Pass nil collector so validate does not open the alert log file as a side effect.
+	_, _, _, _, err := server.BuildFromConfig(configPath, nil)
 	if err != nil {
 		return fmt.Errorf("config invalid: %w", err)
 	}
@@ -70,12 +72,15 @@ func runValidate(configPath string) error {
 }
 
 func runServe(configPath string) error {
-	eng, cfg, notifiers, err := server.BuildFromConfig(configPath)
+	// Collector is created once and never recreated — counters accumulate across hot-reloads.
+	collector := metrics.NewCollector()
+
+	eng, cfg, notifiers, alertLogger, err := server.BuildFromConfig(configPath, collector)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	srv := server.New(eng, notifiers, cfg, configPath)
+	srv := server.New(eng, notifiers, cfg, configPath, collector, alertLogger)
 
 	// reloadMu serializes concurrent reloads from both the SIGHUP goroutine
 	// and the /reload HTTP endpoint (via the reload hook closure below).
@@ -103,7 +108,7 @@ func runServe(configPath string) error {
 		stopFlusher()
 		stopFlusher = func() {}
 
-		newEng, newCfg, newNotifiers, err := server.BuildFromConfig(configPath)
+		newEng, newCfg, newNotifiers, newAlertLogger, err := server.BuildFromConfig(configPath, collector)
 		if err != nil {
 			// Restart flusher on old engine since reload failed.
 			if cfg.Persistence.StateFile != "" {
@@ -122,10 +127,11 @@ func runServe(configPath string) error {
 			}
 		}
 
-		srv.SwapEngine(newEng, newCfg, newNotifiers)
+		srv.SwapEngine(newEng, newCfg, newNotifiers, newAlertLogger)
 		eng = newEng
 		cfg = newCfg
 		notifiers = newNotifiers
+		alertLogger = newAlertLogger
 		log.Printf("ding: config reloaded from %s", configPath)
 
 		// Start new flusher on new engine.
@@ -166,7 +172,7 @@ func runServe(configPath string) error {
 			// 1b. Reset to no-op immediately so any early return path is safe.
 			stopFlusher = func() {}
 
-			newEng, newCfg, newNotifiers, err := server.BuildFromConfig(configPath)
+			newEng, newCfg, newNotifiers, newAlertLogger, err := server.BuildFromConfig(configPath, collector)
 			if err != nil {
 				log.Printf("ding: reload failed: %v (keeping current config)", err)
 				// Restart flusher on old engine since reload failed.
@@ -187,10 +193,11 @@ func runServe(configPath string) error {
 				}
 			}
 
-			srv.SwapEngine(newEng, newCfg, newNotifiers)
+			srv.SwapEngine(newEng, newCfg, newNotifiers, newAlertLogger)
 			eng = newEng
 			cfg = newCfg
 			notifiers = newNotifiers
+			alertLogger = newAlertLogger
 			log.Printf("ding: config reloaded from %s", configPath)
 
 			// Start new flusher on new engine.
@@ -220,12 +227,16 @@ func runServe(configPath string) error {
 		log.Printf("ding: shutdown error: %v", err)
 	}
 
-	// Stop current notifiers. Note: SwapEngine stops the OLD notifiers during hot-reload;
-	// this stops the CURRENT (latest) notifiers at shutdown. These are different instances
-	// after any reload has occurred, so there is no double-stop.
+	// Stop current notifiers.
 	for _, n := range notifiers {
 		if stopper, ok := n.(interface{ Stop() }); ok {
 			stopper.Stop()
+		}
+	}
+	// Close the current alert logger.
+	if alertLogger != nil {
+		if err := alertLogger.Close(); err != nil {
+			log.Printf("ding: closing alert logger: %v", err)
 		}
 	}
 	stopFlusher()
@@ -247,3 +258,4 @@ func readStdin(srv *server.Server, _ string) {
 	}
 	// stdin EOF — HTTP server continues
 }
+

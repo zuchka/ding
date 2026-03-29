@@ -35,6 +35,10 @@ type PersistenceConfig struct {
 	FlushInterval Duration `yaml:"flush_interval"`
 }
 
+type AlertLogConfig struct {
+	Path string `yaml:"path"`
+}
+
 type NotifierConfig struct {
 	Type           string   `yaml:"type"`
 	URL            string   `yaml:"url"`
@@ -61,6 +65,7 @@ type Config struct {
 	Notifiers   map[string]NotifierConfig `yaml:"notifiers"`
 	Rules       []Rule                    `yaml:"rules"`
 	Persistence PersistenceConfig         `yaml:"persistence"`
+	AlertLog    AlertLogConfig            `yaml:"alert_log"`
 }
 
 // Load reads and parses a ding.yaml file.

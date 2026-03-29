@@ -16,6 +16,13 @@ server:
 #   state_file: /var/lib/ding/state.json
 #   flush_interval: 30s
 
+# Alert log (optional — append every fired alert as a JSON line to a file)
+# Useful for debugging: "did DING fire? when? for which rule?"
+# The file is created if it does not exist. The format matches /ingest JSON output.
+# Use GET /metrics to see aggregate counts; this file has per-alert detail.
+# alert_log:
+#   path: /var/log/ding/alerts.jsonl
+
 notifiers:
   # Define named webhook notifiers here.
   # alert-slack:

@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/zuchka/ding/internal/config"
 	"github.com/zuchka/ding/internal/evaluator"
+	"github.com/zuchka/ding/internal/metrics"
 	"github.com/zuchka/ding/internal/notifier"
 	"github.com/zuchka/ding/internal/server"
 )
@@ -31,7 +34,7 @@ func makeServer(t *testing.T) *server.Server {
 		"stdout": notifier.NewStdoutNotifier(bytes.NewBuffer(nil)),
 	}
 	cfg := &config.Config{Server: config.ServerConfig{Format: "json", MaxBodyBytes: 1 << 20}}
-	return server.New(eng, notifiers, cfg, "")
+	return server.New(eng, notifiers, cfg, "", nil, nil)
 }
 
 func TestHealth(t *testing.T) {
@@ -149,7 +152,7 @@ func makeServerWithMaxBodyBytes(t *testing.T, maxBodyBytes int64) *server.Server
 		"stdout": notifier.NewStdoutNotifier(bytes.NewBuffer(nil)),
 	}
 	cfg := &config.Config{Server: config.ServerConfig{Format: "json", MaxBodyBytes: maxBodyBytes}}
-	return server.New(eng, notifiers, cfg, "")
+	return server.New(eng, notifiers, cfg, "", nil, nil)
 }
 
 func TestIngest_BodyTooLarge(t *testing.T) {
@@ -189,5 +192,151 @@ func TestIngest_BodyJustOverLimit(t *testing.T) {
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("expected 413, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// makeServerWithCollector creates a server wired with a real Collector for metrics tests.
+func makeServerWithCollector(t *testing.T) (*server.Server, *metrics.Collector) {
+	t.Helper()
+	rules := []evaluator.EngineRule{
+		{
+			Name:      "cpu_spike",
+			Match:     map[string]string{"metric": "cpu_usage"},
+			Condition: "value > 90",
+			Alerts:    []string{"stdout"},
+		},
+	}
+	eng, err := evaluator.NewEngine(rules, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notifiers := map[string]notifier.Notifier{
+		"stdout": notifier.NewStdoutNotifier(bytes.NewBuffer(nil)),
+	}
+	cfg := &config.Config{Server: config.ServerConfig{Format: "json", MaxBodyBytes: 1 << 20}}
+	c := metrics.NewCollector()
+	return server.New(eng, notifiers, cfg, "", c, nil), c
+}
+
+func TestMetricsEndpoint_OK(t *testing.T) {
+	srv, _ := makeServerWithCollector(t)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("expected text/plain content-type, got %q", ct)
+	}
+	if !strings.Contains(w.Body.String(), "ding_events_ingested_total") {
+		t.Errorf("expected ding_events_ingested_total in response, got: %s", w.Body.String())
+	}
+}
+
+func TestMetricsEndpoint_MethodNotAllowed(t *testing.T) {
+	srv, _ := makeServerWithCollector(t)
+	req := httptest.NewRequest(http.MethodPost, "/metrics", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestMetricsEndpoint_CountsEventsAndAlerts(t *testing.T) {
+	srv, _ := makeServerWithCollector(t)
+
+	// Ingest one alert-firing event.
+	body := `{"metric":"cpu_usage","value":97,"host":"web-01"}`
+	req := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ingest failed: %d %s", w.Code, w.Body.String())
+	}
+
+	// Check /metrics output.
+	req2 := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w2 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w2, req2)
+
+	body2 := w2.Body.String()
+	if !strings.Contains(body2, "ding_events_ingested_total 1") {
+		t.Errorf("expected ding_events_ingested_total 1 in metrics, got:\n%s", body2)
+	}
+	if !strings.Contains(body2, `ding_alerts_fired_total{rule="cpu_spike"} 1`) {
+		t.Errorf("expected ding_alerts_fired_total{rule=\"cpu_spike\"} 1, got:\n%s", body2)
+	}
+}
+
+func TestMetricsEndpoint_NoCollector(t *testing.T) {
+	// A server created with nil collector should return 503.
+	srv := makeServer(t) // nil collector
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 with nil collector, got %d", w.Code)
+	}
+}
+
+func TestAlertLog_WritesOnAlert(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "alerts-*.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	al, err := notifier.NewAlertLogger(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer al.Close()
+
+	rules := []evaluator.EngineRule{
+		{
+			Name:      "cpu_spike",
+			Match:     map[string]string{"metric": "cpu_usage"},
+			Condition: "value > 90",
+			Alerts:    []string{"stdout"},
+		},
+	}
+	eng, err := evaluator.NewEngine(rules, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notifiers := map[string]notifier.Notifier{
+		"stdout": notifier.NewStdoutNotifier(bytes.NewBuffer(nil)),
+	}
+	cfg := &config.Config{Server: config.ServerConfig{Format: "json", MaxBodyBytes: 1 << 20}}
+	srv := server.New(eng, notifiers, cfg, "", nil, al)
+
+	body := `{"metric":"cpu_usage","value":97,"host":"web-01"}`
+	req := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ingest failed: %d", w.Code)
+	}
+
+	al.Close()
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := strings.TrimSpace(string(data))
+	if line == "" {
+		t.Fatal("expected alert log entry, got empty file")
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal([]byte(line), &out); err != nil {
+		t.Fatalf("alert log entry is not valid JSON: %v\nentry: %s", err, line)
+	}
+	if out["rule"] != "cpu_spike" {
+		t.Errorf("expected rule=cpu_spike in alert log, got %v", out["rule"])
 	}
 }
