@@ -3,6 +3,11 @@
 server:
   port: 8080
   format: auto          # json | prometheus | auto
+  # JQ transform (optional): transform arbitrary inbound JSON before parsing.
+  # The expression must produce an object or array of objects, each with
+  # "metric" (string) and "value" (number) fields. Extra fields become labels.
+  # Example: accept Datadog-style batched events:
+  # jq: '.series[] | {metric: .metric, value: (.points[0][1]), host: .tags[0]}'
   max_buffer_size: 10000
   # HTTP server timeouts (optional, secure defaults applied if omitted)
   # read_timeout: 5s
