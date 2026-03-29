@@ -28,6 +28,7 @@ type ServerConfig struct {
 	WriteTimeout  Duration `yaml:"write_timeout"`
 	IdleTimeout   Duration `yaml:"idle_timeout"`
 	MaxBodyBytes  int64    `yaml:"max_body_bytes"`
+	JQ            string   `yaml:"jq"`
 }
 
 type PersistenceConfig struct {

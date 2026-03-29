@@ -193,3 +193,32 @@ func TestValidate_WebhookMissingURL(t *testing.T) {
 		t.Errorf("expected error to contain \"requires a url\", got: %v", err)
 	}
 }
+
+func TestLoad_JQField(t *testing.T) {
+	yaml := `
+server:
+  port: 8080
+  jq: '.events[] | {metric: .name, value: .v}'
+rules:
+  - name: test_rule
+    condition: "value > 0"
+    alert:
+      - notifier: stdout
+`
+	f, err := os.CreateTemp("", "ding-*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+	f.WriteString(yaml)
+	f.Close()
+
+	cfg, err := config.Load(f.Name())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := ".events[] | {metric: .name, value: .v}"
+	if cfg.Server.JQ != want {
+		t.Errorf("expected JQ %q, got %q", want, cfg.Server.JQ)
+	}
+}
