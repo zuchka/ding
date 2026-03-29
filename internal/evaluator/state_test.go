@@ -137,7 +137,7 @@ func TestRestoreEngine_RejectsExpiredEntries(t *testing.T) {
 		Version: 1,
 		SavedAt: time.Now().UTC(),
 		Buffers: map[string]evaluator.BufferSnapshot{
-			"cpu_sustained:host=web-01": {
+			"cpu_sustained:0:host=web-01": {
 				Window:  5 * time.Minute,
 				MaxSize: 1000,
 				Entries: []evaluator.EntrySnapshot{
