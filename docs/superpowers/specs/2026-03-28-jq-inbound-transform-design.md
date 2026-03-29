@@ -57,7 +57,7 @@ Add `JQ string \`yaml:"jq"\`` to `ServerConfig`. No JQ compilation here — the 
 ### `internal/ingester/jq.go` (new file)
 Owns the JQ concern:
 - `CompileJQ(expr string) (*gojq.Code, error)` — compiles at startup
-- `RunJQ(code *gojq.Code, rawBytes []byte) ([]Event, error)` — runs the program against raw bytes, then drains the `gojq` iterator by calling `iter.Next()` in a loop until `(nil, false)` is returned. Each yielded value is treated as one candidate Event object. Errors yielded by the iterator are returned immediately. Returns an error if no values are yielded (null produces a `nil` value from the iterator, detected as `v == nil`), or if a yielded value is a non-object type (bare string, number, etc.) — distinguishing this "shape error" from a JQ runtime error with a clear message like `"jq produced unexpected output type: string"`. Object values are passed to `ParseJSONLine` one at a time.
+- `RunJQ(code *gojq.Code, rawBytes []byte) ([]Event, error)` — runs the program against raw bytes, then drains the `gojq` iterator by calling `iter.Next()` in a loop until `(nil, false)` is returned. Each yielded value is treated as one candidate Event object. Errors yielded by the iterator are returned immediately. Returns an error if no values are yielded (null produces a `nil` value from the iterator, detected as `v == nil`), or if a yielded value is a non-object type (bare string, number, etc.) — distinguishing this "shape error" from a JQ runtime error with a clear message like `"jq produced unexpected output type: string"`. Each yielded `map[string]interface{}` value is re-marshalled to `[]byte` via `json.Marshal` before being passed to `ParseJSONLine`, keeping that function's interface unchanged.
 
 ### `internal/server/server.go`
 - Add `jqCode *gojq.Code` field to `Server` struct (nil when no JQ configured)
@@ -65,8 +65,8 @@ Owns the JQ concern:
 - Update `SwapEngine(...)` to accept and store `*gojq.Code` alongside the new engine
 
 ### `internal/server/handlers.go`
-- `handleIngest`: if `s.jqCode != nil`, call `ingester.RunJQ` instead of `ParseJSONLine`/`ParsePrometheus`. On error, return 400 with the error message.
-- `IngestLine`: same check — if `s.jqCode != nil`, call `ingester.RunJQ`. On error, log and skip (matches existing stdin error behavior).
+- `handleIngest`: read `s.jqCode` inside the existing `s.mu.RLock()` scope alongside `cfg` and `eng`, assigning it to a local variable before the lock is released. If non-nil, call `ingester.RunJQ` instead of `ParseJSONLine`/`ParsePrometheus`. On error, return 400 with the error message.
+- `IngestLine`: same — read `s.jqCode` inside the existing `s.mu.RLock()` scope. If non-nil, call `ingester.RunJQ`. On error, log and skip (matches existing stdin error behavior).
 
 ### `internal/server/buildFromConfig` (internal function in server.go)
 Compile JQ here, after loading config:
