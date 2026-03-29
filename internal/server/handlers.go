@@ -35,6 +35,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 	eng := s.engine
 	notifiers := s.notifiers
 	alertLogger := s.alertLogger
+	jqCode := s.jqCode
 	s.mu.RUnlock()
 
 	r.Body = http.MaxBytesReader(w, r.Body, cfg.Server.MaxBodyBytes)
@@ -48,13 +49,17 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	format := ingester.DetectFormat(body, r.Header.Get("Content-Type"), cfg.Server.Format)
 	var events []ingester.Event
 	var parseErr error
-	if format == "json" {
-		events, parseErr = ingester.ParseJSONLine(body)
+	if jqCode != nil {
+		events, parseErr = ingester.RunJQ(jqCode, body)
 	} else {
-		events, parseErr = ingester.ParsePrometheusText(body)
+		format := ingester.DetectFormat(body, r.Header.Get("Content-Type"), cfg.Server.Format)
+		if format == "json" {
+			events, parseErr = ingester.ParseJSONLine(body)
+		} else {
+			events, parseErr = ingester.ParsePrometheusText(body)
+		}
 	}
 	if parseErr != nil {
 		jsonError(w, parseErr.Error(), http.StatusBadRequest)
@@ -124,12 +129,12 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Default inline reload (no persistence awareness).
-	newEng, newCfg, newNotifiers, newAlertLogger, err := buildFromConfig(s.configPath, s.collector)
+	newEng, newCfg, newNotifiers, newAlertLogger, newJQCode, err := buildFromConfig(s.configPath, s.collector)
 	if err != nil {
 		jsonError(w, "reload failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.SwapEngine(newEng, newCfg, newNotifiers, newAlertLogger)
+	s.SwapEngine(newEng, newCfg, newNotifiers, newAlertLogger, newJQCode)
 	log.Printf("ding: config reloaded from %s", s.configPath)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"reloaded"}`))

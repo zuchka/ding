@@ -63,7 +63,7 @@ func main() {
 
 func runValidate(configPath string) error {
 	// Pass nil collector so validate does not open the alert log file as a side effect.
-	_, _, _, _, err := server.BuildFromConfig(configPath, nil)
+	_, _, _, _, _, err := server.BuildFromConfig(configPath, nil)
 	if err != nil {
 		return fmt.Errorf("config invalid: %w", err)
 	}
@@ -75,12 +75,12 @@ func runServe(configPath string) error {
 	// Collector is created once and never recreated — counters accumulate across hot-reloads.
 	collector := metrics.NewCollector()
 
-	eng, cfg, notifiers, alertLogger, err := server.BuildFromConfig(configPath, collector)
+	eng, cfg, notifiers, alertLogger, jqCode, err := server.BuildFromConfig(configPath, collector)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	srv := server.New(eng, notifiers, cfg, configPath, collector, alertLogger)
+	srv := server.New(eng, notifiers, cfg, configPath, collector, alertLogger, jqCode)
 
 	// reloadMu serializes concurrent reloads from both the SIGHUP goroutine
 	// and the /reload HTTP endpoint (via the reload hook closure below).
@@ -108,7 +108,7 @@ func runServe(configPath string) error {
 		stopFlusher()
 		stopFlusher = func() {}
 
-		newEng, newCfg, newNotifiers, newAlertLogger, err := server.BuildFromConfig(configPath, collector)
+		newEng, newCfg, newNotifiers, newAlertLogger, newJQCode, err := server.BuildFromConfig(configPath, collector)
 		if err != nil {
 			// Restart flusher on old engine since reload failed.
 			if cfg.Persistence.StateFile != "" {
@@ -127,7 +127,7 @@ func runServe(configPath string) error {
 			}
 		}
 
-		srv.SwapEngine(newEng, newCfg, newNotifiers, newAlertLogger)
+		srv.SwapEngine(newEng, newCfg, newNotifiers, newAlertLogger, newJQCode)
 		eng = newEng
 		cfg = newCfg
 		notifiers = newNotifiers
@@ -172,7 +172,7 @@ func runServe(configPath string) error {
 			// 1b. Reset to no-op immediately so any early return path is safe.
 			stopFlusher = func() {}
 
-			newEng, newCfg, newNotifiers, newAlertLogger, err := server.BuildFromConfig(configPath, collector)
+			newEng, newCfg, newNotifiers, newAlertLogger, newJQCode, err := server.BuildFromConfig(configPath, collector)
 			if err != nil {
 				log.Printf("ding: reload failed: %v (keeping current config)", err)
 				// Restart flusher on old engine since reload failed.
@@ -193,7 +193,7 @@ func runServe(configPath string) error {
 				}
 			}
 
-			srv.SwapEngine(newEng, newCfg, newNotifiers, newAlertLogger)
+			srv.SwapEngine(newEng, newCfg, newNotifiers, newAlertLogger, newJQCode)
 			eng = newEng
 			cfg = newCfg
 			notifiers = newNotifiers

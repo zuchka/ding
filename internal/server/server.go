@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/itchyny/gojq"
 	"github.com/zuchka/ding/internal/config"
 	"github.com/zuchka/ding/internal/evaluator"
 	"github.com/zuchka/ding/internal/ingester"
@@ -24,11 +25,12 @@ type Server struct {
 	reloadHook  func() error // optional; set via SetReloadHook
 	alertLogger *notifier.AlertLogger
 	collector   *metrics.Collector // set once in New(), never swapped
+	jqCode      *gojq.Code         // nil when no JQ configured
 }
 
 // New creates a Server. configPath is used by /reload.
 // collector may be nil (e.g. in validate mode). alertLogger may be nil if not configured.
-func New(eng *evaluator.Engine, notifiers map[string]notifier.Notifier, cfg *config.Config, configPath string, collector *metrics.Collector, alertLogger *notifier.AlertLogger) *Server {
+func New(eng *evaluator.Engine, notifiers map[string]notifier.Notifier, cfg *config.Config, configPath string, collector *metrics.Collector, alertLogger *notifier.AlertLogger, jqCode *gojq.Code) *Server {
 	s := &Server{
 		engine:      eng,
 		notifiers:   notifiers,
@@ -37,6 +39,7 @@ func New(eng *evaluator.Engine, notifiers map[string]notifier.Notifier, cfg *con
 		mux:         http.NewServeMux(),
 		collector:   collector,
 		alertLogger: alertLogger,
+		jqCode:      jqCode,
 	}
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/ingest", s.handleIngest)
@@ -51,7 +54,7 @@ func (s *Server) Handler() http.Handler { return s.mux }
 
 // SwapEngine atomically replaces the engine (used by hot-reload).
 // alertLogger replaces the current one; the old logger is closed outside the lock.
-func (s *Server) SwapEngine(eng *evaluator.Engine, cfg *config.Config, notifiers map[string]notifier.Notifier, alertLogger *notifier.AlertLogger) {
+func (s *Server) SwapEngine(eng *evaluator.Engine, cfg *config.Config, notifiers map[string]notifier.Notifier, alertLogger *notifier.AlertLogger, jqCode *gojq.Code) {
 	s.mu.Lock()
 	oldNotifiers := s.notifiers
 	oldLogger := s.alertLogger
@@ -59,6 +62,7 @@ func (s *Server) SwapEngine(eng *evaluator.Engine, cfg *config.Config, notifiers
 	s.cfg = cfg
 	s.notifiers = notifiers
 	s.alertLogger = alertLogger
+	s.jqCode = jqCode
 	s.mu.Unlock()
 
 	// Stop old notifier goroutines outside the lock.
@@ -87,15 +91,15 @@ func (s *Server) SetReloadHook(fn func() error) {
 // BuildFromConfig loads a config file and builds an Engine + Notifiers + AlertLogger.
 // Exported for use in main.go. Pass a nil collector to skip alert log construction
 // (e.g. in validate mode).
-func BuildFromConfig(path string, collector *metrics.Collector) (*evaluator.Engine, *config.Config, map[string]notifier.Notifier, *notifier.AlertLogger, error) {
+func BuildFromConfig(path string, collector *metrics.Collector) (*evaluator.Engine, *config.Config, map[string]notifier.Notifier, *notifier.AlertLogger, *gojq.Code, error) {
 	return buildFromConfig(path, collector)
 }
 
 // buildFromConfig is the internal implementation.
-func buildFromConfig(path string, collector *metrics.Collector) (*evaluator.Engine, *config.Config, map[string]notifier.Notifier, *notifier.AlertLogger, error) {
+func buildFromConfig(path string, collector *metrics.Collector) (*evaluator.Engine, *config.Config, map[string]notifier.Notifier, *notifier.AlertLogger, *gojq.Code, error) {
 	cfg, err := config.Load(path)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("loading config: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("loading config: %w", err)
 	}
 
 	rules := make([]evaluator.EngineRule, len(cfg.Rules))
@@ -115,7 +119,7 @@ func buildFromConfig(path string, collector *metrics.Collector) (*evaluator.Engi
 	}
 	eng, err := evaluator.NewEngine(rules, cfg.Server.MaxBufferSize)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("building engine: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("building engine: %w", err)
 	}
 
 	notifiers := map[string]notifier.Notifier{
@@ -138,12 +142,25 @@ func buildFromConfig(path string, collector *metrics.Collector) (*evaluator.Engi
 					stopper.Stop()
 				}
 			}
-			return nil, nil, nil, nil, fmt.Errorf("opening alert log: %w", err)
+			return nil, nil, nil, nil, nil, fmt.Errorf("opening alert log: %w", err)
 		}
 		alertLogger = al
 	}
 
-	return eng, cfg, notifiers, alertLogger, nil
+	var jqCode *gojq.Code
+	if cfg.Server.JQ != "" {
+		var jqErr error
+		jqCode, jqErr = ingester.CompileJQ(cfg.Server.JQ)
+		if jqErr != nil {
+			for _, n := range notifiers {
+				if stopper, ok := n.(interface{ Stop() }); ok {
+					stopper.Stop()
+				}
+			}
+			return nil, nil, nil, nil, nil, fmt.Errorf("compiling jq: %w", jqErr)
+		}
+	}
+	return eng, cfg, notifiers, alertLogger, jqCode, nil
 }
 
 // IngestLine processes a single raw event line from stdin.
@@ -153,15 +170,20 @@ func (s *Server) IngestLine(line []byte) {
 	eng := s.engine
 	notifiers := s.notifiers
 	alertLogger := s.alertLogger
+	jqCode := s.jqCode
 	s.mu.RUnlock()
 
-	format := ingester.DetectFormat(line, "", cfg.Server.Format)
 	var events []ingester.Event
 	var err error
-	if format == "json" {
-		events, err = ingester.ParseJSONLine(line)
+	if jqCode != nil {
+		events, err = ingester.RunJQ(jqCode, line)
 	} else {
-		events, err = ingester.ParsePrometheusText(line)
+		format := ingester.DetectFormat(line, "", cfg.Server.Format)
+		if format == "json" {
+			events, err = ingester.ParseJSONLine(line)
+		} else {
+			events, err = ingester.ParsePrometheusText(line)
+		}
 	}
 	if err != nil {
 		log.Printf("ding: stdin parse error: %v", err)

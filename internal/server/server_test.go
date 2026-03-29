@@ -11,6 +11,7 @@ import (
 
 	"github.com/zuchka/ding/internal/config"
 	"github.com/zuchka/ding/internal/evaluator"
+	"github.com/zuchka/ding/internal/ingester"
 	"github.com/zuchka/ding/internal/metrics"
 	"github.com/zuchka/ding/internal/notifier"
 	"github.com/zuchka/ding/internal/server"
@@ -34,7 +35,7 @@ func makeServer(t *testing.T) *server.Server {
 		"stdout": notifier.NewStdoutNotifier(bytes.NewBuffer(nil)),
 	}
 	cfg := &config.Config{Server: config.ServerConfig{Format: "json", MaxBodyBytes: 1 << 20}}
-	return server.New(eng, notifiers, cfg, "", nil, nil)
+	return server.New(eng, notifiers, cfg, "", nil, nil, nil)
 }
 
 func TestHealth(t *testing.T) {
@@ -152,7 +153,7 @@ func makeServerWithMaxBodyBytes(t *testing.T, maxBodyBytes int64) *server.Server
 		"stdout": notifier.NewStdoutNotifier(bytes.NewBuffer(nil)),
 	}
 	cfg := &config.Config{Server: config.ServerConfig{Format: "json", MaxBodyBytes: maxBodyBytes}}
-	return server.New(eng, notifiers, cfg, "", nil, nil)
+	return server.New(eng, notifiers, cfg, "", nil, nil, nil)
 }
 
 func TestIngest_BodyTooLarge(t *testing.T) {
@@ -215,7 +216,32 @@ func makeServerWithCollector(t *testing.T) (*server.Server, *metrics.Collector) 
 	}
 	cfg := &config.Config{Server: config.ServerConfig{Format: "json", MaxBodyBytes: 1 << 20}}
 	c := metrics.NewCollector()
-	return server.New(eng, notifiers, cfg, "", c, nil), c
+	return server.New(eng, notifiers, cfg, "", c, nil, nil), c
+}
+
+func makeServerWithJQ(t *testing.T, jqExpr string) *server.Server {
+	t.Helper()
+	rules := []evaluator.EngineRule{
+		{
+			Name:      "cpu_spike",
+			Match:     map[string]string{"metric": "cpu_usage"},
+			Condition: "value > 90",
+			Alerts:    []string{"stdout"},
+		},
+	}
+	eng, err := evaluator.NewEngine(rules, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notifiers := map[string]notifier.Notifier{
+		"stdout": notifier.NewStdoutNotifier(bytes.NewBuffer(nil)),
+	}
+	cfg := &config.Config{Server: config.ServerConfig{Format: "json", MaxBodyBytes: 1 << 20, JQ: jqExpr}}
+	jqCode, err := ingester.CompileJQ(jqExpr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return server.New(eng, notifiers, cfg, "", nil, nil, jqCode)
 }
 
 func TestMetricsEndpoint_OK(t *testing.T) {
@@ -312,7 +338,7 @@ func TestAlertLog_WritesOnAlert(t *testing.T) {
 		"stdout": notifier.NewStdoutNotifier(bytes.NewBuffer(nil)),
 	}
 	cfg := &config.Config{Server: config.ServerConfig{Format: "json", MaxBodyBytes: 1 << 20}}
-	srv := server.New(eng, notifiers, cfg, "", nil, al)
+	srv := server.New(eng, notifiers, cfg, "", nil, al, nil)
 
 	body := `{"metric":"cpu_usage","value":97,"host":"web-01"}`
 	req := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewBufferString(body))
@@ -338,5 +364,123 @@ func TestAlertLog_WritesOnAlert(t *testing.T) {
 	}
 	if out["rule"] != "cpu_spike" {
 		t.Errorf("expected rule=cpu_spike in alert log, got %v", out["rule"])
+	}
+}
+
+func TestIngest_WithJQ_SingleObject(t *testing.T) {
+	srv := makeServerWithJQ(t, `{metric: .name, value: .reading}`)
+	body := `{"name":"cpu_usage","reading":97}`
+	req := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewBufferString(body))
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]int
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["events"] != 1 {
+		t.Errorf("expected events=1, got %d", resp["events"])
+	}
+	if resp["alerts_fired"] != 1 {
+		t.Errorf("expected alerts_fired=1, got %d", resp["alerts_fired"])
+	}
+}
+
+func TestIngest_WithJQ_ArrayFanout(t *testing.T) {
+	srv := makeServerWithJQ(t, `.events[]`)
+	// Two events: one above threshold, one below.
+	body := `{"events":[{"metric":"cpu_usage","value":97},{"metric":"cpu_usage","value":50}]}`
+	req := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewBufferString(body))
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]int
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["events"] != 2 {
+		t.Errorf("expected events=2, got %d", resp["events"])
+	}
+	if resp["alerts_fired"] != 1 {
+		t.Errorf("expected alerts_fired=1, got %d", resp["alerts_fired"])
+	}
+}
+
+func TestIngest_WithJQ_BadPayload_Returns400(t *testing.T) {
+	// JQ maps .name→metric, .reading→value. Payload missing those fields produces
+	// null metric/value, which ParseJSONLine rejects with a 400.
+	srv := makeServerWithJQ(t, `{metric: .name, value: .reading}`)
+	body := `{"foo":"bar","baz":1}`
+	req := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewBufferString(body))
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for payload with missing JQ fields, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestReload_Inline_UpdatesJQ(t *testing.T) {
+	// Config with JQ transform
+	cfg1 := `
+server:
+  max_body_bytes: 1048576
+  jq: '{metric: .name, value: .v}'
+rules:
+  - name: cpu_spike
+    match:
+      metric: cpu_usage
+    condition: "value > 90"
+    alert:
+      - notifier: stdout
+`
+	// Config without JQ (standard format)
+	cfg2 := `
+server:
+  max_body_bytes: 1048576
+rules:
+  - name: cpu_spike
+    match:
+      metric: cpu_usage
+    condition: "value > 90"
+    alert:
+      - notifier: stdout
+`
+	f, err := os.CreateTemp(t.TempDir(), "ding-*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(cfg1)
+	f.Close()
+
+	eng, cfg, notifiers, alertLogger, jqCode, err := server.BuildFromConfig(f.Name(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = alertLogger
+	srv := server.New(eng, notifiers, cfg, f.Name(), nil, nil, jqCode)
+
+	// Pre-reload: JQ format works
+	req1 := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewBufferString(`{"name":"cpu_usage","v":97}`))
+	w1 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w1, req1)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("pre-reload: expected 200, got %d: %s", w1.Code, w1.Body.String())
+	}
+
+	// Switch to config without JQ and reload
+	os.WriteFile(f.Name(), []byte(cfg2), 0644)
+	reloadReq := httptest.NewRequest(http.MethodPost, "/reload", nil)
+	reloadW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(reloadW, reloadReq)
+	if reloadW.Code != http.StatusOK {
+		t.Fatalf("reload: expected 200, got %d: %s", reloadW.Code, reloadW.Body.String())
+	}
+
+	// Post-reload: standard format works
+	req2 := httptest.NewRequest(http.MethodPost, "/ingest", bytes.NewBufferString(`{"metric":"cpu_usage","value":97}`))
+	w2 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("post-reload: expected 200, got %d: %s", w2.Code, w2.Body.String())
 	}
 }
