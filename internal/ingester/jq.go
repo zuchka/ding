@@ -49,7 +49,7 @@ func RunJQ(code *gojq.Code, rawBytes []byte) ([]Event, error) {
 			return nil, fmt.Errorf("jq runtime error: %w", err)
 		}
 		if v == nil {
-			return nil, fmt.Errorf("jq produced no output")
+			return nil, fmt.Errorf("jq produced null output")
 		}
 		m, ok := v.(map[string]interface{})
 		if !ok {
